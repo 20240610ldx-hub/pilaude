@@ -1,10 +1,16 @@
 # Pi Web - Development Notes
 
-## Pilaude engineering handoff — read first
+## Pilaude relay — read first
 
-Before continuing Pilaude UI work, read [the engineering workspace](docs/engineering/pilaude-ui/README.md), starting with [handoff](docs/engineering/pilaude-ui/handoff.md), then [plan](docs/engineering/pilaude-ui/plan.md), [progress](docs/engineering/pilaude-ui/progress.md) and [technical specification](docs/engineering/pilaude-ui/technical-spec.md). These files preserve the active task across threads; verify their mutable git/service facts, continue the recorded next step and maintain them after meaningful changes, acceptance, commits or handoff. A checkpoint is not completion of full reproduction. User corrections override old acceptance claims. Keep private references/fonts/credentials outside public engineering records. This durable entry is intentional project guidance; preserve it when removing generated Next.js guidance.
+This repository is built by many agents across tools (Claude Code, Codex, …) and subscriptions, handing work to each other. **The single entry point is [docs/relay/README.md](docs/relay/README.md)** (Chinese). Before any work:
 
-For ongoing Pilaude UI work, the user wants 3–8 implementation subagents while the main agent coordinates, reviews, accepts evidence and saves checkpoints; handling user feedback is the exception. Assign a documentation owner when useful, keep file ownership explicit and serialize actual browser checks against the shared preview. A source freeze is not browser acceptance. Temporary agent handles are session-local; a new thread follows the on-disk handoff instead of waiting for old agents.
+1. Read `docs/relay/README.md`, `docs/relay/GOALS.md`, `docs/relay/RULES.md`, and your role file in `docs/relay/roles/`.
+2. Run `node scripts/relay.mjs check`, `list` and `next`.
+3. Work only on a claimed task card, inside its worktree (`node scripts/relay.mjs start <id>`), within its `files_allowed`.
+
+Non-negotiable (details in `docs/relay/RULES.md`): acceptance criteria are frozen before implementation and change only through `relay amend` approved by the user or planner; implementers never record passing evidence for, or review, their own work; never delete, skip or weaken tests, relax thresholds/baselines, or edit protected files to make checks pass; run `node scripts/relay.mjs guard` before handing to verification; commit `wip(PIL-xxxx): …` often and write the four-part handoff log (`做了 / 状态 / 下一步 / 风险`) before stopping; when unsure or after three failed attempts, set the task `blocked` and stop.
+
+Project state lives in task cards (`docs/relay/tasks/`), task branches (`task/PIL-xxxx-*`) and `docs/relay/GOALS.md` — never in chat history, subagent reports or temporary agent IDs. `docs/engineering/**`, `docs/pilaude-ui-parity.md`, `docs/pilaude-component-adoption.md` and `docs/superpowers/**` are pre-2026-10-19 history archives: consult the specific section a task card cites; do not append new status there. This durable section is intentional project guidance; preserve it when removing generated Next.js guidance.
 
 ## Quick Start
 
@@ -43,7 +49,8 @@ Typecheck: `node_modules/.bin/tsc --noEmit` · Lint: `npm run lint`
   fails tests that pin newer SDK behaviour. `npm test` runs `npm run check:deps` first and
   stops with the mismatched packages; `npm ci` fixes it.
 - **`next dev` rewrites `AGENTS.md`**: it appends a "This is NOT the Next.js you know" block
-  to this file on every start. Run `git checkout -- AGENTS.md` before committing; it is not part of the work.
+  to this file on every start. Preserve the project and user instructions here; review generated
+  additions separately and never reset the entire file to discard development output.
 
 ---
 
@@ -183,8 +190,9 @@ Fork notes:
 - [fork-models.md](docs/agents/fork-models.md): routed model, cost by model and cache warming, classifier and image models, the four thinking-level states, model defaults, remote provider catalogs (refresh only on request), `enabledModels` minimal edits and `resync`, auth and credential deletion.
 - [fork-tools-subagents.md](docs/agents/fork-tools-subagents.md): new-session tool presets and Chat only, exact system prompts through `before_agent_start`, built-in subagents (setting, disabled built-ins, profile files, notifications).
 - [fork-files-security.md](docs/agents/fork-files-security.md): security posture (web password, OAuth tokens, preview sandboxes), worktrees and branch switching, the file access allow-list, web password throttling.
-- [fork-desktop.md](docs/agents/fork-desktop.md): the Tauri shell (desktop token, native menus in Rust, file context menu, window state, tauri plugin version pairing), workspace terminals and node-pty / quickjs staging, Windows overwrite installs.
+- [fork-desktop.md](docs/agents/fork-desktop.md): the Tauri shell (desktop token, themed DOM menus with a Rust native backup path, file context menu, window state, tauri plugin version pairing), workspace terminals and node-pty / quickjs staging, Windows overwrite installs.
 - [fork-ui.md](docs/agents/fork-ui.md): who contains whom in the topbar / chat column / right panel, the settings dialog tabs, touch affordances, completion sound, plugins and skills.
+- [fork-chat-workspace.md](docs/agents/fork-chat-workspace.md): the non-project Chats section, the hidden `chat-workspace` cwd and `workspaceKind` identity, project-workbench suppression, and the server-enforced chat policy (skills and MCP yes; no file, shell or other extension tools; no context files), text attachments, and continuing a chat in a project.
 
 ### AgentSession lifecycle (`lib/rpc-manager.ts`)
 - One `AgentSessionWrapper` per session id, keyed in `globalThis.__piSessions`
@@ -207,12 +215,13 @@ Each one undid a real regression; the linked note has the reasoning.
 - No literal `homedir()` in session-scanner fs calls; use `userHome()`. ([fork-sessions](docs/agents/fork-sessions.md))
 - Native-dialog routes (`/api/desktop/*`, `?type=import`) require the per-process desktop token; never a static token or User-Agent check. `read-images` derives its cap from `MAX_ATTACHED_IMAGES`. ([fork-desktop](docs/agents/fork-desktop.md))
 - Open local paths with `explorer.exe` on Windows, never `cmd.exe /C start`. ([fork-desktop](docs/agents/fork-desktop.md))
-- Native popup menus are built in Rust (`show_popup_menu`); do not go back to the JS `Menu` API. ([fork-desktop](docs/agents/fork-desktop.md))
+- Native popup menus are built in Rust (`show_popup_menu`); do not go back to the JS `Menu` API. All application popup menus currently use themed DOM menus (`NATIVE_POPUP_MENUS_ENABLED = false`); the Rust path remains an inactive backup. ([fork-desktop](docs/agents/fork-desktop.md))
 - `tauri-plugin-*` crates and `@tauri-apps/plugin-*` packages stay on the same minor; fix drift in `Cargo.lock`, never by pinning npm down. ([fork-desktop](docs/agents/fork-desktop.md))
 - Window state flags are `SIZE | POSITION | MAXIMIZED`; never `VISIBLE` or `DECORATIONS`. ([fork-desktop](docs/agents/fork-desktop.md))
 - After an SDK bump run `npm run desktop:prepare && npm run desktop:verify`; never hard-code a nested staging destination; keep all three Windows `node_modules` guards. ([fork-desktop](docs/agents/fork-desktop.md))
 - Layout: the center column contains topbar and chat; the right-panel block is a full-height sibling inside the outer row; no `paddingLeft: sidebarResizer.width` on the topbar. Pinned by `AppShell.right-panel-row.test.mjs`. ([fork-ui](docs/agents/fork-ui.md))
 - `SettingsPanel` keeps the `onBusyChange` guard so a desktop update cannot be dismissed mid-install. ([fork-ui](docs/agents/fork-ui.md))
+- Chats use a server-owned hidden cwd and `workspaceKind`; never derive that path in the browser, group it with projects, or expose it to project trust / worktrees / files / terminals. Server policy must keep chats off the shell and editing, off every extension tool the user has not allowed, `read` limited to skills, saved files and files the user named in their own message, writes limited to `save_to_downloads`, and context-file-free, even for persisted sessions. ([fork-chat-workspace](docs/agents/fork-chat-workspace.md))
 
 ---
 
@@ -230,8 +239,11 @@ The third direction is `forbiddenMarkers` on a `FORK_FEATURES` entry: a region t
 ### Upstream merge decisions (standing rules)
 Full per-merge reasoning (segments E, F, G, with what was adopted and what was declined) is in [merge-history.md](docs/merge-history.md). The rules that still bind a future merge:
 - **Upstream owns SDK adaptation.** Exact system prompts go through `lib/exact-system-prompt.ts` (`before_agent_start`); the session list comes from `lib/session-list-scanner.ts`; MCP and Code mode run on ADR 0006's `builtin:*` extensions (`createMcpExtension()` is never passed as a bare inline factory) and `resolveActiveToolNames()` replaced `withExtensionTools()`. Do not re-add a second path for any of these.
-- **Declined upstream UI stays declined**: the sidebar explorer and resizable session/explorer panes (`data-resize-handle="sidebar-sections"`), `DirectoryPicker`, `SessionSearch`, `ChatMinimap`, `getSessionListIndices` windowing, the second mobile toolbar group, the topbar models/skills/settings quick-buttons, `ExtensionStatusBar` (the fork's `ExtensionStatusLine` replaces it). A merge that brings one back is re-introducing declined UI, not a test to satisfy.
+- **Declined upstream UI stays declined**: the sidebar explorer and resizable session/explorer panes (`data-resize-handle="sidebar-sections"`), `ChatMinimap`, `getSessionListIndices` windowing, the second mobile toolbar group, the topbar models/skills/settings quick-buttons, `ExtensionStatusBar` (the fork's `ExtensionStatusLine` replaces it). A merge that brings one back is re-introducing declined UI, not a test to satisfy. `DirectoryPicker` and `SessionSearch` are components the fork itself uses (welcome/project picking and sidebar content search); only their upstream placement was declined.
 - **Fork layers that must survive a merge**: `userHome()` routing instead of literal `homedir()`, models-config literal-key redaction, `resolveSessionReferences` in the send/queue paths, the monotonic request-id guards in `useAgentSession`, the project-tree sidebar with the full-height layout, desktop i18n and Settings sections.
+- **`systemHome()` for authorization and display, `userHome()` for Pi data.** An upstream merge that swaps `systemHome()` for `userHome()` in the skills route, `displaySettingsPath` or `lib/linked-directory.ts` is reverting the fork (the home-tracing and display tests are written for `systemHome()`).
+- **Chats are not projects in the sidebar.** Chat rows (`session.workspaceKind === "chat"`) take upstream's reduced menu and its `pinnedChats`/`archivedChats` prefs; project rows keep the fork's `sidebar-session-metadata` pin/archive/groups. Do not offer Open in, Fork or groups on a chat row, and keep `isChatWorkspaceActive` guards on every workbench entry point (`AppShell.chat-workspace.test.mjs`).
+- **The composer has one Send/Queue/Stop control** (`data-action`); the submission snapshot (`ComposerSubmission`: text, images, files) is what guarantees one `onSend` per submit. Do not re-add Steer/Follow-up buttons.
 - **`lib/startup-preferences.ts` stays deleted** (new-session model picks are session-scoped); `PUT /api/models/default` is the only writer of global defaults.
 - **`package-lock.json` keeps the tauri plugin versions pinned to `src-tauri/Cargo.lock`**: restore HEAD's lock before `npm install --package-lock-only`, or the carets re-resolve and `release-workflows.test.mjs` fails.
 - After a merge: `node scripts/upstream-css-baseline.mjs update <upstream-ref>` and `npm run drift`.
@@ -253,6 +265,17 @@ Location: `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
 `SessionContext.entryIds[]` parallels `messages[]`: each displayed message's `.jsonl` entry id, used for fork and navigate_tree.
 
 ## Styling: fork CSS lives only in `app/native-theme.css`
+
+**UI consistency is mandatory (user requirement).** Every application menu, dropdown,
+option picker and autocomplete popup must use the shared `.app-menu` surface and menu
+tokens in `app/native-theme.css`. Form choices use `components/AppSelect.tsx`; do not
+introduce raw `<select>` controls or OS-native application option menus. Preserve the
+same palette, nested radii, inset, row spacing, selected/disabled states and focus
+treatment in both themes. Use the existing design as the reference, consult the
+sources in `docs/ui-menu-audit.md`, and inspect actual rendered states at desktop and
+narrow widths before claiming visual consistency. System file/directory dialogs are
+separate OS tasks. Run `node --test scripts/ui-menu-consistency.test.mjs` after menu work;
+changes to shared choices also run `node e2e/option-controls.mjs`.
 
 `app/globals.css` and `app/settings.css` are pi-web's and stay byte-identical to upstream — `scripts/upstream-css-baseline.test.mjs` fails on any edit. Put every fork rule in `app/native-theme.css` (imported last in `app/layout.tsx`); overrides of upstream rules that other theme rules must beat go in its "fork base layer" at the top. After an upstream merge run `node scripts/upstream-css-baseline.mjs update <upstream-ref>` (the sync workflow does). Layout of the theme file and the design intent to restore after a merge: `docs/native-theme.md`.
 

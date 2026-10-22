@@ -7,6 +7,8 @@ mod window;
 mod window_appkit;
 
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::{thread, time::Duration};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt as _;
@@ -14,6 +16,8 @@ use std::os::windows::process::CommandExt as _;
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 use tauri::{AppHandle, Manager, Url};
+
+use crate::logging::{desktop_log, since_process_start_ms};
 
 #[cfg(target_os = "macos")]
 pub use macos_menu::build_macos_app_menu;
@@ -23,13 +27,66 @@ pub use platform_tray::build_linux_tray;
 pub use platform_tray::build_platform_tray;
 pub use server::{CloseQuits, DesktopApiToken, DesktopServer};
 pub use window::{build_window, launched_at_login, AUTOSTART_ARG};
-#[cfg(target_os = "macos")]
-pub use window_appkit::refresh_traffic_lights;
 
 pub(crate) const WINDOW_LABEL: &str = "main";
 
+/// The window is built hidden so the user never sees the webview before it has
+/// content (a blank vibrancy/white rectangle while Next.js loads). It is shown
+/// once, by whichever comes first: the UI saying its first screen is ready
+/// (`app_ready`), the page finishing its load plus `REVEAL_AFTER_PAGE_LOAD`
+/// (pages that never call `app_ready`, e.g. the login page), or
+/// `REVEAL_DEADLINE` after the window was built (the page never loaded).
+static MAIN_WINDOW_REVEALED: AtomicBool = AtomicBool::new(false);
+const REVEAL_AFTER_PAGE_LOAD: Duration = Duration::from_millis(1500);
+const REVEAL_DEADLINE: Duration = Duration::from_secs(6);
+
+/// Shows the main window the first time it is called. A launch at login stays
+/// in the tray: the window is revealed by the user, through `show_main_window`.
+fn reveal_main_window(app: &AppHandle, reason: &str) {
+    if launched_at_login() || MAIN_WINDOW_REVEALED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    desktop_log(
+        app,
+        &format!(
+            "main window revealed by {reason} (+{}ms)",
+            since_process_start_ms()
+        ),
+    );
+    show_main_window(app);
+}
+
+/// Reveals the window from a background thread after `delay`, unless something
+/// else already did.
+pub fn reveal_main_window_later(app: &AppHandle, delay: Duration, reason: &'static str) {
+    let app = app.clone();
+    let _ = thread::Builder::new()
+        .name("reveal-main-window".into())
+        .spawn(move || {
+            thread::sleep(delay);
+            if MAIN_WINDOW_REVEALED.load(Ordering::SeqCst) {
+                return;
+            }
+            let on_main = app.clone();
+            let _ = app.run_on_main_thread(move || reveal_main_window(&on_main, reason));
+        });
+}
+
+pub fn schedule_reveal_deadline(app: &AppHandle) {
+    reveal_main_window_later(app, REVEAL_DEADLINE, "deadline");
+}
+
+pub fn schedule_reveal_after_page_load(app: &AppHandle) {
+    reveal_main_window_later(app, REVEAL_AFTER_PAGE_LOAD, "page-load fallback");
+}
+
 pub fn show_main_window(app: &AppHandle) {
+    MAIN_WINDOW_REVEALED.store(true, Ordering::SeqCst);
     if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
+        #[cfg(target_os = "macos")]
+        if window_appkit::show_hidden_window_masked(app, &window) {
+            return;
+        }
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
@@ -38,11 +95,91 @@ pub fn show_main_window(app: &AppHandle) {
     }
 }
 
+/// The page presented its frames after the window came back from hidden: lift
+/// the alpha mask (macOS; nothing to do elsewhere).
+#[tauri::command]
+pub fn window_painted(app: AppHandle) {
+    #[cfg(target_os = "macos")]
+    window_appkit::end_paint_mask(&app, "painted");
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
+}
+
+/// How long the event loop gets to serve `app.exit` before the process is torn
+/// down by hand. A normal exit takes a few milliseconds.
+const EXIT_GRACE: Duration = Duration::from_secs(2);
+
+/// Quits the app and guarantees the process ends.
+///
+/// `app.exit` only queues an exit request that the event loop must serve. When
+/// the Quit comes from the Windows tray menu, the loop can be parked inside the
+/// popup menu's modal loop (`TrackPopupMenu`), so the request sits unserved:
+/// the window is gone, `RunEvent::Exit` never runs, the process and its
+/// keep-awake request live on (PIL-0180 evidence; PIL-0197 repro script).
+/// The watchdog thread dies with the process on a normal exit and only ever
+/// wakes when the loop did not stop.
 pub fn quit_application(app: &AppHandle) {
+    desktop_log(app, "quit requested");
     if let Some(server) = app.try_state::<DesktopServer>() {
         server.stop();
     }
     app.exit(0);
+    spawn_exit_watchdog(EXIT_GRACE, {
+        let app = app.clone();
+        move || force_exit(&app)
+    });
+}
+
+fn spawn_exit_watchdog(grace: Duration, on_stalled: impl FnOnce() + Send + 'static) {
+    let _ = thread::Builder::new()
+        .name("exit-watchdog".into())
+        .spawn(move || {
+            thread::sleep(grace);
+            on_stalled();
+        });
+}
+
+/// The `RunEvent::Exit` cleanup, run by hand because the event loop never got
+/// to it, followed by the end of the process.
+fn force_exit(app: &AppHandle) -> ! {
+    forced_exit_sequence(
+        |line| desktop_log(app, line),
+        || {
+            if let Some(state) = app.try_state::<crate::keep_awake::KeepAwakeState>() {
+                state.release();
+            }
+        },
+        || {
+            #[cfg(target_os = "linux")]
+            crate::remove_instance_lock();
+        },
+        || {
+            if let Some(server) = app.try_state::<DesktopServer>() {
+                server.stop();
+            }
+        },
+    );
+    std::process::exit(0)
+}
+
+/// Order of a forced exit: say why, release the OS-visible resources, then
+/// write the same `exit` line the normal `RunEvent::Exit` path writes (marked
+/// `(forced)`), so "the app exited" is one searchable fact in `desktop.log`.
+/// The `exit` line comes last: it means the cleanup is done.
+fn forced_exit_sequence(
+    mut log: impl FnMut(&str),
+    release_keep_awake: impl FnOnce(),
+    remove_instance_lock: impl FnOnce(),
+    stop_server: impl FnOnce(),
+) {
+    log(&format!(
+        "exit forced: event loop did not stop within {}ms of the quit request",
+        EXIT_GRACE.as_millis()
+    ));
+    release_keep_awake();
+    remove_instance_lock();
+    stop_server();
+    log("exit (forced)");
 }
 
 #[tauri::command]
@@ -60,6 +197,17 @@ pub fn set_close_quits(app: AppHandle, quit: bool) -> Result<(), String> {
 pub fn quit_app(app: AppHandle) -> Result<(), String> {
     quit_application(&app);
     Ok(())
+}
+
+/// The UI's first screen is on the page: show the (hidden) window now.
+#[tauri::command]
+pub fn app_ready(app: AppHandle, reason: Option<String>) -> Result<(), String> {
+    let reason = reason.unwrap_or_default();
+    let reason: String = reason.chars().take(80).collect();
+    let label = format!("ui ready ({reason})");
+    let on_main = app.clone();
+    app.run_on_main_thread(move || reveal_main_window(&on_main, &label))
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -89,5 +237,56 @@ pub fn open_external(url: &Url) {
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         let _ = Command::new("xdg-open").arg(url.as_str()).spawn();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{forced_exit_sequence, spawn_exit_watchdog};
+    use std::cell::RefCell;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    #[test]
+    fn exit_watchdog_fires_when_the_event_loop_never_stops() {
+        let (tx, rx) = mpsc::channel();
+        spawn_exit_watchdog(Duration::from_millis(20), move || {
+            let _ = tx.send(());
+        });
+        assert!(rx.recv_timeout(Duration::from_secs(2)).is_ok());
+    }
+
+    #[test]
+    fn exit_watchdog_waits_out_the_grace_period() {
+        let (tx, rx) = mpsc::channel();
+        spawn_exit_watchdog(Duration::from_millis(400), move || {
+            let _ = tx.send(());
+        });
+        assert!(rx.recv_timeout(Duration::from_millis(50)).is_err());
+        assert!(rx.recv_timeout(Duration::from_secs(2)).is_ok());
+    }
+
+    #[test]
+    fn forced_exit_cleans_up_in_order_and_logs_exit_last() {
+        let events = RefCell::new(Vec::<String>::new());
+        forced_exit_sequence(
+            |line| events.borrow_mut().push(format!("log:{line}")),
+            || events.borrow_mut().push("keep-awake".into()),
+            || events.borrow_mut().push("instance-lock".into()),
+            || events.borrow_mut().push("server".into()),
+        );
+        let events = events.into_inner();
+        assert_eq!(events.len(), 5);
+        assert!(events[0].starts_with("log:exit forced"));
+        assert_eq!(&events[1..4], ["keep-awake", "instance-lock", "server"]);
+        assert_eq!(events[4], "log:exit (forced)");
+    }
+
+    #[test]
+    fn forced_exit_writes_a_line_starting_with_exit() {
+        let lines = RefCell::new(Vec::<String>::new());
+        forced_exit_sequence(|l| lines.borrow_mut().push(l.to_string()), || {}, || {}, || {});
+        let lines = lines.into_inner();
+        assert!(lines.iter().any(|l| l == "exit" || l.starts_with("exit (")));
     }
 }

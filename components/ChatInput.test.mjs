@@ -14,6 +14,7 @@ const { renderToStaticMarkup } = await jiti.import("react-dom/server");
 const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, cycleListIndex, filterModelOptions, getTopbarBoundary, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, modelSupportsImageInput, replaceLinksWithMarkdown, shouldCompressImageFile, offersBuiltinSlashCommandWhileStreaming, submitsSlashCommandOnEnter} = await jiti.import("./ChatInput.tsx");
 
 const { isBareMcpCommand } = await jiti.import("@/lib/mcp-command.ts");
+const { composeMessageWithAttachedFiles } = await jiti.import("@/lib/chat-attachments.ts");
 const { ModelSelector } = await jiti.import("./ModelSelector.tsx");
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("@/lib/draft-store");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
@@ -118,7 +119,7 @@ test("follow-up shortcuts preserve newline, IME, mobile and completion behavior"
     compilerOptions: { target: ts.ScriptTarget.ES2020 },
   }).outputText);
   const cases = [
-    ["Enter steers", {}, {}, "steer"],
+    ["Enter queues a follow-up", {}, {}, "followup"],
     ["Alt+Enter follows up", { altKey: true }, {}, "followup"],
     ["idle Alt+Enter sends", { altKey: true }, { isStreaming: false }, "send"],
     ["Shift+Enter inserts a newline", { shiftKey: true }, {}, "native"],
@@ -142,7 +143,7 @@ test("follow-up shortcuts preserve newline, IME, mobile and completion behavior"
     ["history selection takes priority", { altKey: true }, { historyMenuOpen: true }, "history"],
     ["Ctrl+Enter mode: Enter inserts a newline", {}, { enterSendMode: "ctrlEnter", isStreaming: false }, "native"],
     ["Ctrl+Enter mode: Ctrl+Enter sends", { ctrlKey: true }, { enterSendMode: "ctrlEnter", isStreaming: false }, "send"],
-    ["Ctrl+Enter mode: Cmd+Enter steers", { metaKey: true }, { enterSendMode: "ctrlEnter" }, "steer"],
+    ["Ctrl+Enter mode: Cmd+Enter queues a follow-up", { metaKey: true }, { enterSendMode: "ctrlEnter" }, "followup"],
     ["Ctrl+Enter mode: composition grace blocks the newline", {}, { enterSendMode: "ctrlEnter", lastCompositionEndAtRef: { current: 950 } }, "prevented"],
     ["Ctrl+Enter mode: Enter picks a file", {}, { enterSendMode: "ctrlEnter", atMenuOpen: true, atQuery: {} }, "file"],
     ["Ctrl+Enter mode: Enter picks from history", {}, { enterSendMode: "ctrlEnter", historyMenuOpen: true }, "history"],
@@ -240,15 +241,13 @@ test("cycleListIndex wraps in both directions", () => {
   assert.equal(cycleListIndex(-1, 4, 1), 0);
 });
 
-test("shows the follow-up shortcut in the button tooltip", () => {
-  const html = renderToStaticMarkup(
-    React.createElement(I18nProvider, null, React.createElement(ChatInput, {
-      onSend() {}, onAbort() {}, onFollowUp() {}, isStreaming: true,
-    })),
-  );
-
-  assert.match(html, /title="Queue this message after the agent finishes \(Alt\/Option\+Enter\)"/);
-  assert.match(html, /aria-keyshortcuts="Alt\+Enter"/);
+test("streaming with an empty draft has one circular Stop and no competing send controls", () => {
+  const html = renderWithI18n(React.createElement(ChatInput, {
+    onSend() {}, onAbort() {}, onSteer() {}, onFollowUp() {}, isStreaming: true,
+  }));
+  assert.match(html, /data-action="stop"/);
+  assert.equal((html.match(/aria-label="Stop agent"/g) || []).length, 1);
+  assert.doesNotMatch(html, /composer-queue-button|composer-stop-button|Alt\+Enter/);
 });
 
 test("renders the upstream model error", () => {
@@ -366,6 +365,7 @@ test("renders the compact composer with the standard Send button and no session 
   );
 
   assert.match(html, /<textarea/);
+  assert.match(html, /class="native-primary-button"[^>]*aria-label="Send"/);
   assert.match(html, />Send<\/button>/);
   assert.equal((html.match(/<button\b/g) ?? []).length, 1);
   assert.doesNotMatch(html, /type="file"|Attach image|Change tool preset/);
@@ -577,6 +577,7 @@ test("locks built-in command submission until it settles", async () => {
     compilerOptions: { target: ts.ScriptTarget.ES2020 },
   }).outputText).runInNewContext({
     attachedImages: [],
+    attachedFilesRef: { current: [] }, composeMessageWithAttachedFiles,
     attachedImagesRef: { current: [] },
     builtinCommandPendingRef: { current: false },
     canClearBuiltinCommandInput,
@@ -644,6 +645,10 @@ function chatInputCallback(name, context) {
     submissionPendingRef: { current: null },
     valueRef: { current: context.value ?? "" },
     attachedImagesRef: { current: context.attachedImages ?? [] },
+    // Chats only: text files attached next to the images; none unless a test supplies them.
+    attachedFilesRef: { current: [] },
+    setAttachedFiles() {},
+    composeMessageWithAttachedFiles,
     ...context,
   };
   if (name !== "beginSubmission" && !submissionContext.beginSubmission) {
@@ -668,6 +673,7 @@ test("while a run streams, a bare /mcp opens Settings or is queued as before", a
     const calls = { builtin: [], prompts: [], cleared: 0 };
     const sendQueued = chatInputCallback("sendQueued", {
       value,
+      attachedFilesRef: { current: [] }, composeMessageWithAttachedFiles,
       attachedImages: images,
       onAudioUnlock() {},
       clearInput() { calls.cleared += 1; },
@@ -679,7 +685,7 @@ test("while a run streams, a bare /mcp opens Settings or is queued as before", a
       runBuiltinCommand: async (message) => { calls.builtin.push(message); return handled; },
       onPromptWithStreamingBehavior: (message, behavior, attached) => calls.prompts.push([message, behavior, attached?.length ?? 0]),
       onSteer() { throw new Error("slash messages are prompts"); },
-      onFollowUp() { throw new Error("slash messages are prompts"); },
+      onFollowUp: (message, attached) => calls.prompts.push([message, "followUp", attached?.length ?? 0]),
     });
     sendQueued(mode);
     await new Promise((resolve) => setImmediate(resolve));
@@ -703,6 +709,7 @@ test("handleSend lets a handled /mcp through while streaming and sends an unowne
     const calls = { builtin: [], sent: [] };
     const handleSend = chatInputCallback("handleSend", {
       value,
+      attachedFilesRef: { current: [] }, composeMessageWithAttachedFiles,
       attachedImages: [],
       onAudioUnlock() {},
       isStreaming,
@@ -1093,10 +1100,12 @@ test("handleSend sends exactly once and routes builtin commands through the pend
     let builtinCalls = 0;
     const submissionContextRef = { current: {} };
     const submissionPendingRef = { current: null };
+    const attachedFilesRef = { current: [] };
     const handler = script.runInNewContext({
       value, attachedImages, isStreaming: false, workspaceUnavailable,
       submissionContextRef, submissionPendingRef,
-      beginSubmission: chatInputCallback("beginSubmission", { value, attachedImages, submissionContextRef, submissionPendingRef }),
+      attachedFilesRef, composeMessageWithAttachedFiles,
+      beginSubmission: chatInputCallback("beginSubmission", { value, attachedImages, attachedFilesRef, submissionContextRef, submissionPendingRef }),
       onAudioUnlock() {},
       runBuiltinCommand: async () => {
         builtinCalls += 1;
@@ -1297,8 +1306,36 @@ test("a missing workspace replaces the model error and disables Send", () => {
   const source = readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8");
   assert.match(source, /workspaceUnavailable\s*\?\s*<WorkspaceUnavailableBanner[\s\S]*?:\s*<ModelErrorBanner error=\{modelError\} \/>/);
   assert.match(source, /const canSend = canQueueStreamingMessage && !workspaceUnavailable;/);
-  assert.match(source, /onClick=\{handleSend\}\s*disabled=\{!canSend\}/);
+  assert.match(source, /disabled=\{!showStop && \(!canSend/);
 });
+
+test("chat-only composer keeps shell, file and session mentions out of the input", () => {
+  const html = renderWithI18n(
+    React.createElement(ChatInput, {
+      onSend() {},
+      onAbort() {},
+      isStreaming: false,
+      chatOnly: true,
+      cwd: "/repo",
+      toolPreset: "none",
+      onThinkingLevelChange() {},
+    }),
+  );
+
+  assert.match(html, /accept="image\/\*"/);
+  assert.match(html, /aria-label="Attach image"/);
+  assert.match(html, /Chat · \/ commands · images &amp; text files/);
+  assert.doesNotMatch(html, /@ files/);
+  assert.doesNotMatch(html, /# sessions/);
+  assert.doesNotMatch(html, />Shell</);
+
+  const source = readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+  assert.match(source, /const bashMode = !chatOnly && attachedImages\.length === 0/);
+  assert.match(source, /if \(chatOnly \|\| !cwd\) \{\s*setAtQuery\(null\)/);
+  assert.match(source, /useSessionMentionPalette\(\{ cwd: chatOnly \? null : cwd/);
+  assert.match(source, /\{chatOnly && \([\s\S]*?t\("chat\.chatOnlyDescription"\)/);
+});
+
 test("only the chat composer offers saving a default model or reasoning level", () => {
   const chatInputSource = readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8");
   const agentsConfigSource = readFileSync(new URL("./AgentsConfig.tsx", import.meta.url), "utf8");
@@ -1309,7 +1346,7 @@ test("only the chat composer offers saving a default model or reasoning level", 
   assert.doesNotMatch(agentsConfigSource, /onSetDefault/);
 });
 
-test("selector rows keep the default star and the floating save button in one gutter", async () => {
+test("selector rows expose a plain default star separate from the selected option", async () => {
   const { SelectorRow } = await jiti.import("./SelectorRow.tsx");
   const star = (isDefault) => ({ isDefault, saveLabel: "Save as default", defaultLabel: "Default", onSave: () => {} });
   const row = (props) => renderToStaticMarkup(React.createElement(SelectorRow, {
@@ -1321,9 +1358,9 @@ test("selector rows keep the default star and the floating save button in one gu
   const savable = row({ star: star(false) });
   assert.match(savable, /role="option"/);
   assert.match(savable, /aria-label="Save as default"/);
-  // Hidden until hover or focus, but kept out of the row's text by the gutter.
-  assert.match(savable, /opacity:0/);
-  assert.match(savable, /tabindex="-1"/);
+  // The unfilled star stays available to pointer, keyboard and touch input.
+  assert.match(savable, /class="app-default-star"/);
+  assert.doesNotMatch(savable, /opacity:0|tabindex="-1"|box-shadow/);
   assert.match(savable, /padding:7px 36px 7px 12px/);
   assert.doesNotMatch(savable, /aria-label="Default"/);
 
@@ -1341,5 +1378,123 @@ test("selector rows keep the default star and the floating save button in one gu
 
   const active = row({ active: true });
   assert.match(active, /aria-selected="true"/);
+  assert.match(active, /data-selected="true"/);
+  assert.doesNotMatch(active, /polyline/);
   assert.doesNotMatch(active, /border-left/);
+});
+
+test("C08 main card is [attach][text][send] in one row: attach sits in the editor before the textarea", () => {
+  const html = renderWithI18n(React.createElement(ChatInput, { onSend() {}, onAbort() {}, isStreaming: false }));
+  const editorStart = html.indexOf('class="chat-composer-editor"');
+  const attach = html.indexOf("composer-attach-button");
+  const textarea = html.indexOf('class="chat-input-textarea"');
+  const send = html.indexOf('data-action="send"');
+  const controls = html.indexOf('class="chat-composer-controls"');
+  assert.ok(editorStart >= 0 && attach > editorStart, "attach button is inside the editor");
+  assert.ok(textarea > attach, "attach button precedes the textarea");
+  assert.ok(send > textarea, "send follows the textarea");
+  if (controls >= 0) assert.ok(attach < controls, "attach is not in the footer row");
+  assert.equal((html.match(/composer-attach-button/g) || []).length, 1);
+  assert.doesNotMatch(html, /composer-leading-actions/);
+});
+
+test("C08 composer renders no microphone control, label or placeholder", () => {
+  for (const props of [{}, { isStreaming: true }, { compact: true }]) {
+    const html = renderWithI18n(React.createElement(ChatInput, { onSend() {}, onAbort() {}, ...props }));
+    assert.doesNotMatch(html, /aria-label="[^"]*(microphone|Microphone|dictat|Dictat|voice|Voice|麥克風|麦克风|錄音|录音)[^"]*"/);
+    assert.doesNotMatch(html, /composer-mic|composer-voice/);
+  }
+});
+
+test("C08 compact quote composer has no attach button", () => {
+  const html = renderWithI18n(React.createElement(ChatInput, { onSend() {}, onAbort() {}, compact: true }));
+  assert.doesNotMatch(html, /composer-attach-button/);
+});
+
+test("C08 send hint is closed on first render and keeps the accessible name without a title", () => {
+  const html = renderWithI18n(React.createElement(ChatInput, { onSend() {}, onAbort() {}, isStreaming: false }));
+  // Disabled (empty draft) Send never owns a hint; hover/focus state starts closed.
+  assert.doesNotMatch(html, /role="tooltip"|composer-send-tooltip|aria-describedby/);
+  assert.match(html, /data-action="send"[^>]*aria-label="Send"/);
+});
+
+test("C08 send hint wiring: hover, keyboard focus, Escape and blur, tooltip role and describedby", () => {
+  const src = readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+  // Opens on hover and focus-visible only; closes on leave, blur and Escape.
+  assert.match(src, /onMouseEnter=\{\(\) => setSendTipOpen\(true\)\}/);
+  assert.match(src, /onMouseLeave=\{\(\) => setSendTipOpen\(false\)\}/);
+  assert.match(src, /e\.target\.matches\(":focus-visible"\)\) setSendTipOpen\(true\)/);
+  assert.match(src, /onBlur=\{\(\) => setSendTipOpen\(false\)\}/);
+  assert.match(src, /e\.key === "Escape"\) setSendTipOpen\(false\)/);
+  // The tooltip is a tooltip, referenced by the button only while open and available.
+  assert.match(src, /aria-describedby=\{sendTipAvailable && sendTipOpen \? sendTipId : undefined\}/);
+  assert.match(src, /id=\{sendTipId\} role="tooltip" className="composer-send-tooltip"/);
+  // Hidden on compact, mobile, streaming (Stop/Queue keep native title) and disabled Send.
+  assert.match(src, /const sendTipAvailable = !compact && !isMobile && !isStreaming && !sendDisabled;/);
+  // The native title is dropped while the custom hint is available so they never stack.
+  assert.match(src, /title=\{sendTipAvailable \? undefined : t\(showStop/);
+  // Ctrl keycap is shown when Enter alone does not send.
+  assert.match(src, /sendShortcutNeedsCtrl = isMobile \|\| enterSendMode === "ctrlEnter"/);
+  // No fork-send row until PIL-0189 has a real consumer in the shell (moved out of C08).
+  assert.doesNotMatch(src, /composer-fork|forkSend|sendInFork/);
+});
+
+test("C08 verifier F1-F4: browser-level Escape closes a hovered hint; attach fill, tile ring and send glyph offset", async (t) => {
+  const { build } = await import("esbuild");
+  const { chromium } = await import("playwright");
+  const { fileURLToPath } = await import("node:url");
+  const project = fileURLToPath(new URL("../", import.meta.url));
+  const bundle = (await build({
+    stdin: { contents: `import React from "react";
+      import {createRoot} from "react-dom/client";
+      import {I18nProvider} from "./hooks/useI18n";
+      import {ChatInput} from "./components/ChatInput";
+      createRoot(document.getElementById("root")).render(<I18nProvider><div className="app-shell" style={{width:820,margin:"0 auto",position:"relative"}}><div className="chat-composer-column"><ChatInput onSend={()=>{}} onAbort={()=>{}} isStreaming={false} onSetAutomation={()=>{}} model={{provider:"anthropic",id:"opus"}} modelList={[]} draftKey="c08-f"/></div></div></I18nProvider>);`, resolveDir: project, loader: "tsx" },
+    bundle: true, write: false, format: "iife", platform: "browser", jsx: "automatic", logLevel: "silent", define: { "process.env.NODE_ENV": '"development"' }, loader: { ".css": "empty" }, tsconfig: fileURLToPath(new URL("../tsconfig.json", import.meta.url)),
+  })).outputFiles[0].text;
+  const css = ["app/globals.css", "app/settings.css", "vendor/open-claude-ui/cds-theme.css", "app/native-theme.css"]
+    .map((f) => readFileSync(new URL(`../${f}`, import.meta.url), "utf8")).join("\n").replace(/^@import[^;]*;/gm, "");
+  const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  for (const theme of ["light", "dark"]) {
+    const page = await browser.newPage({ viewport: { width: 1000, height: 500 }, deviceScaleFactor: 1.5, reducedMotion: "reduce" });
+    await page.route("**/*", (r) => {
+      const u = r.request().url();
+      if (u === "https://c08.fixture/") return r.fulfill({ contentType: "text/html", body: `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body style="margin:0;padding:80px 0 0;background:var(--bg)"><div id="root"></div><script>${bundle.replaceAll("</script", "<\/script")}</script></body></html>` });
+      return u.includes("/api/") ? r.fulfill({ contentType: "application/json", body: '{"data":{}}' }) : r.abort();
+    });
+    await page.goto("https://c08.fixture/");
+    await page.evaluate((th) => document.documentElement.classList.toggle("dark", th === "dark"), theme);
+    const ta = page.locator(".chat-input-textarea");
+    await ta.fill("继续推进这个任务");
+    // F3: pointer on Send, caret in the textarea; Escape must close the hint.
+    await page.locator(".composer-send-button").hover();
+    assert.equal(await page.locator(".composer-send-tooltip").count(), 1, `${theme}: hint opens on hover`);
+    await ta.focus();
+    await page.keyboard.press("Escape");
+    assert.equal(await page.locator(".composer-send-tooltip").count(), 0, `${theme}: Escape closes the hovered hint`);
+    // F4: send glyph is nudged by 0.4px, not the earlier 2.3px.
+    const sendTransform = await page.evaluate(() => getComputedStyle(document.querySelector('.composer-send-button[data-action="send"] svg')).transform);
+    assert.equal(sendTransform, "matrix(1, 0, 0, 1, 0, 0.4)");
+    // F1/F2: attachments present.
+    await page.locator("input[type=file]").first().setInputFiles({ name: "t.png", mimeType: "image/png", buffer: Buffer.from(png, "base64") });
+    await page.waitForSelector(".composer-attachment-image");
+    await page.mouse.move(5, 5);
+    const m = await page.evaluate(() => {
+      const a = document.querySelector(".composer-attach-button"), i = document.querySelector(".composer-attachment-image");
+      const ci = getComputedStyle(i);
+      return { active: a.hasAttribute("data-active"), bg: getComputedStyle(a).backgroundColor, bw: ci.borderTopWidth, bs: ci.borderTopStyle, bc: ci.borderTopColor };
+    });
+    assert.equal(m.active, true);
+    assert.equal(m.bg, "rgba(0, 0, 0, 0)", `${theme}: attach button has no fill with attachments`);
+    assert.equal(m.bs, "solid");
+    assert.equal(m.bw, "1px");
+    if (theme === "dark") assert.equal(m.bc, "rgb(68, 68, 68)");
+    await page.locator(".composer-attach-button").hover();
+    await page.waitForTimeout(400);
+    const hoverBg = await page.evaluate(() => getComputedStyle(document.querySelector(".composer-attach-button")).backgroundColor);
+    assert.notEqual(hoverBg, "rgba(0, 0, 0, 0)", `${theme}: hover keeps its fill`);
+    await page.close();
+  }
 });

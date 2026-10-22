@@ -14,10 +14,20 @@ export const APP_PREF_KEYS = {
   rightPanelWidth: "pi-right-panel-width",
   unreadSessionIds: "pi-web:unread-session-ids",
   archivedProjects: "pi-web:archived-projects",
+  /** Sidebar Projects pane layout: grouped project tree or chronological sessions. */
+  projectViewMode: "pi-web:project-view-mode",
   /** Project roots whose session list is folded in the sidebar tree. */
   collapsedProjects: "pi-web:collapsed-projects",
-  /** Project roots whose session lists remain expanded past the preview cap. */
+  /** Project root -> additional five-session pages shown past the preview cap. */
   expandedProjects: "pi-web:expanded-projects",
+  /** "1" while the sidebar Chats section is folded. */
+  collapsedChats: "pi-web:collapsed-chats",
+  /** Additional five-chat pages shown past the Chats preview cap. */
+  chatSessionPages: "pi-web:chat-session-pages",
+  /** Chat session ids pinned to the top of the Chats section. */
+  pinnedChats: "pi-web:pinned-chats",
+  /** Chat session ids hidden from the Chats section until "Show archived". */
+  archivedChats: "pi-web:archived-chats",
   updateSnooze: "pi-web:update-snooze",
   closeQuits: "pi-desktop-close-quits",
   notifyOnComplete: "pi-desktop-notify-on-complete",
@@ -29,6 +39,8 @@ export const APP_PREF_KEYS = {
   /** Short-lived, explicitly addressed feedback from a Changes popout. */
   changesFeedbackRequest: "pi-changes-feedback-request-v1",
   changesFeedbackAck: "pi-changes-feedback-ack-v1",
+  /** Bounded local view summaries; only their random ID appears in popout URLs. */
+  changesWindowViews: "pi-changes-window-views-v1",
   /** Last open session / cwd / file tabs for desktop cold-start restore. */
   workspace: "pi-workspace-v1",
 } as const;

@@ -332,18 +332,6 @@
 .sidebar-project-context-menu button:hover {
   background: var(--bg-hover);
 }
-.settings-entry-menu {
-  width: 184px;
-}
-.settings-entry-menu button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.settings-entry-menu button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
 .sidebar-project-context-menu-back {
   color: var(--text-muted) !important;
 }
@@ -636,12 +624,11 @@
   }
 }
 
-/* While the agent or a bash command is running, fork/navigate actions on user
-   messages are inert (the handlers early-return) — hide them here instead of
-   toggling their props, so MessageView memoization survives busy transitions. */
-.chat-window[data-session-busy="true"] .user-msg-actions {
-  opacity: 0 !important;
-  pointer-events: none !important;
+/* While the session is busy, in-session edit branches must wait. Keep the
+   action visible and disabled (MessageView supplies the reason) so users do
+   not lose the affordance; fork stays available during ordinary agent runs. */
+.chat-window[data-session-busy="true"] .user-msg-actions button:disabled {
+  opacity: 0.48;
 }
 
 /* ---- from settings.css --------------------------------------------------- */
@@ -719,6 +706,80 @@
   padding: 10px 12px;
   border-radius: 8px;
   background: var(--bg-panel);
+}
+
+/* Keyboard reference: a small command panel that stays light enough to open
+   repeatedly while learning the app. */
+.shortcut-help-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 750;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(16, 16, 18, 0.24);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+.shortcut-help-dialog {
+  width: min(430px, 100%);
+  max-height: min(520px, calc(100dvh - 48px));
+  overflow: auto;
+  padding: 16px;
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-elevated);
+  box-shadow: var(--shadow-dialog);
+}
+
+.shortcut-help-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  color: var(--text);
+  font-size: var(--fs-title);
+}
+
+.shortcut-help-list {
+  display: grid;
+  margin: 0;
+}
+
+.shortcut-help-list > div {
+  display: grid;
+  grid-template-columns: 118px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 0;
+  border-bottom: var(--hairline) solid var(--separator);
+}
+
+.shortcut-help-list > div:last-child {
+  border-bottom: none;
+}
+
+.shortcut-help-list kbd {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 1px 6px;
+  border: var(--hairline) solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-subtle);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  white-space: nowrap;
+}
+
+.shortcut-help-list dd {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--fs-body);
 }
 
 /* Version card: current and latest release side by side with the update
@@ -1712,6 +1773,7 @@ select {
    matches the inline lineHeight: 1.6 on .chat-input-textarea. */
 .chat-input-textarea::placeholder {
   line-height: 1.6;
+  color: var(--text-dim);
 }
 
 button:focus-visible,
@@ -2063,29 +2125,15 @@ html.dark .sidebar-view-switcher-thumb {
   min-height: 0;
 }
 
-.sidebar-recent-section {
+.sidebar-project-timeline {
   display: flex;
   flex-direction: column;
   flex: 0 0 auto;
-  padding-bottom: 6px;
-}
-
-.sidebar-recent-header {
-  border-bottom: var(--hairline) solid var(--separator);
-  margin-bottom: 2px;
-}
-
-.sidebar-recent-items {
-  display: flex;
-  flex-direction: column;
-}
-
-.sidebar-recent-items .session-item {
-  height: 32px !important;
+  padding: 2px 0 8px;
 }
 
 .session-item-project {
-  max-width: 28%;
+  max-width: 34%;
   flex: 0 1 auto;
   overflow: hidden;
   color: var(--text-dim);
@@ -2115,11 +2163,62 @@ html.dark .sidebar-view-switcher-thumb {
   color: var(--text-dim);
 }
 
+.sidebar-chats-header {
+  margin-top: 2px;
+}
+
+/* The section title doubles as the fold toggle, like a project row. */
+.sidebar-chats-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar-chats-title .sidebar-project-tree-title {
+  flex: 0 1 auto;
+}
+
+.sidebar-chats-title:hover .sidebar-project-tree-title {
+  color: var(--text-muted);
+}
+
+.sidebar-project-tree-add:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.sidebar-chats-empty {
+  padding: 3px 10px 6px 31px;
+  color: var(--text-dim);
+  font-size: var(--fs-small);
+  line-height: 1.4;
+}
+
 .sidebar-project-tree-tools {
   display: flex;
   align-items: center;
   gap: 2px;
   flex: 0 0 auto;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease;
+}
+
+.sidebar-project-tree-header:hover .sidebar-project-tree-tools,
+.sidebar-project-tree-header.is-menu-open .sidebar-project-tree-tools,
+.sidebar-project-tree-header:focus-within .sidebar-project-tree-tools {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .sidebar-project-tree-menu,
@@ -2138,10 +2237,61 @@ html.dark .sidebar-view-switcher-thumb {
   transition: background 120ms ease, color 120ms ease;
 }
 
+@media (hover: none) {
+  .sidebar-project-tree-tools {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 .sidebar-project-tree-menu:hover,
-.sidebar-project-tree-add:hover {
+.sidebar-project-tree-add:hover,
+.sidebar-project-tree-menu.is-open {
   background: var(--bg-hover);
   color: var(--text);
+}
+
+.project-view-menu {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  width: 216px;
+  padding: 5px;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.project-view-menu-heading {
+  padding: 5px 8px 4px;
+  color: var(--text-dim);
+  font-size: var(--fs-caption);
+}
+
+.project-view-menu button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 0 8px;
+  text-align: left;
+}
+
+.project-view-menu button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.project-view-menu-check {
+  width: 14px;
+  flex: 0 0 14px;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.project-view-menu-separator {
+  height: var(--hairline);
+  margin: 4px 6px;
+  background: var(--separator);
 }
 
 .sidebar-project-tree-menu-popover .sidebar-project-tree-menu-item {
@@ -2455,6 +2605,14 @@ html.dark .sidebar-view-switcher-thumb {
   border-radius: 8px;
 }
 
+/* Session rows are treeitems, but the native div does not expose a focus
+   ring through a label. Keep keyboard traversal visible without displacing
+   the compact row. */
+.session-item:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
 /* Border blends into the selected background — no darker accent ring */
 .session-item.is-selected {
   background: var(--bg-selected) !important;
@@ -2466,12 +2624,6 @@ html.dark .sidebar-view-switcher-thumb {
    running / unread indicator in that slot. */
 .session-item-glyph {
   visibility: hidden;
-}
-
-/* Secondary sidebar text (timestamps, counts, section label) sat at ~3.9:1 on
-   the panel; scoped here so the global --text-dim keeps its role elsewhere. */
-html:not(.dark) .app-sidebar {
-  --text-dim: #6c6c71;
 }
 
 /* On the selection fill the timestamp measured 3.8:1; the inline color on the
@@ -3018,6 +3170,12 @@ html:not(.dark) .session-item.is-selected .session-item-time {
   gap: 1px;
 }
 
+/* Only the first trailing group absorbs free space. A second auto margin on
+   Windows/Linux would strand the chat actions in the middle of the title bar. */
+.app-topbar > :is(.app-topbar-actions, .main-file-toggle) ~ .window-controls {
+  margin-left: 12px;
+}
+
 /* Wrapper divs (BranchNavigator, More menu anchor) must center their 28px
    buttons vertically, otherwise they hug the top of the 34px row. */
 .app-topbar-actions > div {
@@ -3150,16 +3308,308 @@ html:not(.dark) .session-item.is-selected .session-item-time {
   color: var(--text-hover) !important;
 }
 
-/* Project picker entries render as flush rows separated by divider lines
-   instead of individually rounded pills. */
-.native-popover button.project-picker-option {
-  border-radius: 0 !important;
+/* Project choices use the same inset rows as every other option menu. */
+.app-menu button.project-picker-option {
+  min-height: var(--menu-row-height);
+  border-radius: var(--menu-row-radius) !important;
+  border-bottom-color: transparent !important;
 }
 
 .native-popover input:not([type="checkbox"]):not([type="radio"]) {
   border-color: var(--separator) !important;
   border-radius: 7px !important;
   background: var(--surface-muted) !important;
+}
+
+/* One menu surface for settings, topbar actions and composer selectors. */
+:root {
+  /* Choice geometry: Settings' inset/radius, Config's separation. */
+  --choice-inset: 8px;
+  --choice-row-gap: 4px;
+  --choice-row-radius: 5px;
+  --menu-radius: calc(var(--choice-row-radius) + var(--choice-inset) + 1px);
+  --menu-inset: var(--choice-inset);
+  --menu-row-radius: var(--choice-row-radius);
+  --menu-row-height: 34px;
+  --menu-row-gap: var(--choice-row-gap);
+  --menu-focus-ring: var(--text);
+}
+
+.app-menu {
+  padding: var(--menu-inset) !important;
+  max-width: calc(100vw - 16px);
+  border: 1px solid var(--separator) !important;
+  border-radius: var(--menu-radius) !important;
+  background: var(--surface-elevated) !important;
+  color: var(--text);
+  box-shadow: var(--shadow-popover) !important;
+  backdrop-filter: none;
+}
+
+/* A single padded surface owns the inset; scroll wrappers add none. */
+.app-menu-list {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.app-menu :is(button[role="menuitem"], button[role="menuitemcheckbox"], button[role="menuitemradio"], button[role="option"]) {
+  min-height: var(--menu-row-height);
+  border-radius: var(--menu-row-radius) !important;
+  color: var(--text);
+  font-size: var(--fs-small);
+  line-height: 1.4;
+}
+
+.app-menu :is(button[role="menuitem"], button[role="menuitemcheckbox"], button[role="menuitemradio"]) {
+  padding: 8px 10px;
+}
+
+.app-menu :is(button[role="menuitem"], button[role="menuitemcheckbox"], button[role="menuitemradio"], button[role="option"]):focus-visible {
+  outline: 2px solid var(--menu-focus-ring) !important;
+  outline-offset: -2px;
+  background: var(--bg-hover) !important;
+}
+
+.app-menu .app-option-row {
+  border-radius: var(--menu-row-radius);
+}
+
+.app-menu .app-option-row[data-selected] {
+  background: var(--bg-selected) !important;
+}
+
+.app-menu .app-option-row:not([data-selected]):hover {
+  background: var(--bg-hover) !important;
+}
+
+/* Match the Settings navigation pill; focus/hover never imply selection. */
+:root { --menu-selection-color: #0078d4; }
+@supports (color: AccentColor) {
+  :root { --menu-selection-color: AccentColor; }
+}
+.app-menu :is(
+  .app-option-row[data-selected],
+  .app-select-option[data-state="checked"],
+  [role="menuitemradio"][aria-checked="true"],
+  [role="menuitemcheckbox"][aria-checked="true"],
+  .app-menu-option[aria-selected="true"],
+  .composer-menu-row[data-active="true"],
+  button[aria-current="true"]
+) {
+  position: relative;
+  background: var(--bg-selected) !important;
+}
+.app-menu :is(
+  .app-option-row[data-selected],
+  .app-select-option[data-state="checked"],
+  [role="menuitemradio"][aria-checked="true"],
+  [role="menuitemcheckbox"][aria-checked="true"],
+  .app-menu-option[aria-selected="true"],
+  .composer-menu-row[data-active="true"],
+  button[aria-current="true"]
+)::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 3px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--menu-selection-color);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.app-menu .app-default-star {
+  width: 32px !important;
+  height: 32px !important;
+  right: 2px !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--text-muted);
+}
+.app-menu .app-default-star:hover,
+.app-menu .app-default-star.is-default { color: var(--menu-selection-color); }
+.app-menu .app-default-star:focus:not(:focus-visible) { outline: none; }
+.app-menu .app-default-star:focus-visible {
+  outline: 2px solid var(--menu-focus-ring);
+  outline-offset: -2px;
+}
+@media (pointer: coarse) {
+  .app-menu .app-default-star { width: 44px !important; height: 44px !important; }
+  .app-menu .app-option-row:has(.app-default-star) > [role="option"] { padding-right: 50px !important; }
+}
+
+.app-menu .app-option-row > button[role="option"] {
+  color: var(--text) !important;
+  font-weight: 500 !important;
+}
+
+.app-menu .app-option-row[data-selected] > button[role="option"] {
+  font-weight: 600 !important;
+}
+
+.app-menu button:not(.branch-summary-action):not(.branch-summary-confirm) {
+  border-radius: var(--menu-row-radius) !important;
+}
+
+/* Separate the painted rows, including a checked row next to a hovered one.
+   Space the SelectorRow wrapper, not its option/default-star buttons. Scope
+   this to flat choices so tree guides and horizontal form actions stay intact. */
+.app-menu :where(
+  .app-option-row,
+  .wt-row,
+  .sidebar-project-context-menu-row,
+  .app-select-option,
+  .app-menu-option,
+  .project-picker-option,
+  [role="menuitemradio"],
+  [role="menuitem"],
+  [role="menuitemcheckbox"],
+  .app-suggestion-menu button
+):not(:first-child) {
+  margin-block-start: var(--menu-row-gap) !important;
+}
+
+.app-menu .wt-row { border-bottom: 0 !important; }
+
+/* Grid completions and flex suggestion lists use gap instead of row margins,
+   so columns stay aligned and an existing gap cannot double the spacing. */
+.app-menu .app-menu-items { gap: var(--menu-row-gap) !important; }
+.app-menu .app-menu-items > * { margin-block-start: 0 !important; }
+.app-menu.project-view-menu { gap: 0; }
+
+.app-select-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--control-height);
+  padding: 6px 9px;
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-small);
+  line-height: 1.4;
+  text-align: start;
+  cursor: pointer;
+}
+.app-select-trigger > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-select-trigger:focus-visible {
+  outline: 2px solid var(--menu-focus-ring) !important;
+  outline-offset: 2px;
+}
+.app-select-trigger[aria-invalid="true"] { border-color: var(--danger); }
+.app-select-trigger:disabled { opacity: 0.5; cursor: default; }
+.app-select-trigger:hover:not(:disabled),
+.app-select-trigger[data-state="open"] { background: var(--bg-hover); }
+.app-select-chevron { display: inline-flex; flex: none; color: var(--text-muted); }
+.app-select-menu {
+  z-index: 2400;
+  min-width: min(var(--radix-select-trigger-width, 120px), calc(100vw - 16px));
+  max-width: min(440px, var(--radix-select-content-available-width, calc(100vw - 16px)));
+  max-height: min(360px, var(--radix-select-content-available-height, calc(100dvh - 16px)));
+  overflow: hidden;
+}
+.app-select-menu:not(.animated-native-popover) {
+  transform-origin: var(--radix-select-content-transform-origin, bottom center) !important;
+}
+.app-select-viewport { min-height: 0; overscroll-behavior: contain; scrollbar-width: thin !important; }
+.app-select-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--menu-row-height);
+  padding: 8px 10px;
+  border-radius: var(--menu-row-radius);
+  color: var(--text);
+  font-size: var(--fs-small);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  cursor: default;
+  outline-offset: -2px;
+}
+.app-select-option[data-state="checked"] { background: var(--bg-selected); font-weight: 600; }
+.app-select-option[data-highlighted] { background: var(--bg-hover); }
+.app-select-option:focus-visible { outline: 2px solid var(--menu-focus-ring); }
+.app-select-option[data-disabled] { opacity: 0.45; pointer-events: none; }
+.app-combobox-menu { position: fixed; z-index: 2400; overflow-y: auto; overscroll-behavior: contain; }
+.app-menu-option {
+  display: flex;
+  width: 100%;
+  min-height: var(--menu-row-height);
+  align-items: center;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--menu-row-radius);
+  background: transparent;
+  color: var(--text);
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.app-menu-option[aria-selected="true"] { background: var(--bg-selected); }
+.app-menu :is(.app-menu-option, .project-picker-option)[aria-current="true"] {
+  background: var(--bg-selected) !important;
+  color: var(--text) !important;
+}
+.app-suggestion-menu button { min-height: var(--menu-row-height); }
+
+/* Keep the mobile-only section picker hidden on desktop after replacing select. */
+.settings-mobile-section-picker.app-select-trigger { display: none; }
+@media (max-width: 640px) {
+  .settings-mobile-section-picker.app-select-trigger { display: inline-flex; }
+}
+
+.app-menu-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  white-space: normal;
+}
+
+.app-menu-copy > small {
+  color: var(--text-muted);
+  font-size: var(--fs-caption);
+  font-weight: 400;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.composer-tool-menu {
+  width: 304px;
+  max-width: calc(100vw - 32px);
+}
+
+.composer-tool-menu .app-option-row > button[role="option"] {
+  min-height: 50px;
+  padding: 8px 10px;
+  align-items: flex-start;
+}
+
+.composer-tool-menu .app-option-row > button[role="option"] > :first-child {
+  margin-top: 4px;
+}
+
+@media (pointer: coarse) {
+  :root { --menu-row-height: 44px; }
+  .app-select-option { min-height: 44px; }
+  .app-menu :is(button[role="menuitem"], button[role="menuitemcheckbox"], button[role="menuitemradio"], button[role="option"]) {
+    min-height: 44px;
+  }
 }
 
 /* In-app context menu (components/DomContextMenuHost.tsx): the DOM stand-in for
@@ -3945,10 +4395,10 @@ html:not(.dark) .session-item.is-selected .session-item-time {
   :root[data-platform="linux"] .settings-section-tabs {
     grid-area: 2 / 1;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--choice-row-gap);
     height: auto;
     margin: 0;
-    padding: 4px 8px 12px;
+    padding: var(--choice-inset);
     overflow-x: hidden;
     overflow-y: auto;
   }
@@ -3960,7 +4410,7 @@ html:not(.dark) .session-item.is-selected .session-item-time {
     gap: 12px;
     width: auto;
     padding: 0 12px;
-    border-radius: 5px;
+    border-radius: var(--choice-row-radius);
     font-size: 13px;
     transition:
       color 120ms ease,
@@ -4054,8 +4504,11 @@ html:not(.dark) .session-item.is-selected .session-item-time {
 }
 
 .chat-composer {
+  --composer-send-size: 36px;
+  --composer-inset: 10px;
+  --composer-border-width: 1px;
   overflow: visible;
-  padding: 8px 9px;
+  padding: var(--composer-inset);
   background: var(--surface) !important;
   border: var(--hairline) solid var(--border) !important;
   border-radius: var(--cds-radius-composer) !important;
@@ -4067,7 +4520,7 @@ html:not(.dark) .session-item.is-selected .session-item-time {
 }
 
 .chat-composer-editor {
-  padding: 4px 3px 6px 5px !important;
+  padding: 0 0 0 4px !important;
   border: 0 !important;
   border-radius: 0 !important;
   background: transparent !important;
@@ -4145,7 +4598,7 @@ html:not(.dark) .session-item.is-selected .session-item-time {
   height: 32px;
   padding: 0 8px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--text-muted);
   font-size: var(--fs-small);
@@ -4175,7 +4628,7 @@ html:not(.dark) .session-item.is-selected .session-item-time {
 }
 
 .chat-composer-controls .native-popover button {
-  border-radius: 7px;
+  border-radius: var(--radius-md);
 }
 
 /* Steer / Follow-up while a run is active. One shape, two theme hues; the
@@ -4391,8 +4844,84 @@ html:not(.dark) .session-item.is-selected .session-item-time {
   background: var(--bg);
 }
 
+/* PIL-0072: the powerline primary row (model · context) is always visible and
+   sits in that shelf. Without its own opaque surface it blends with transcript
+   text on short windows (390x340) where the composer overlay covers the chat.
+   No Claude Desktop reference exists for this Pi-only row, so spacing is the
+   tightest that keeps one 11px mono line readable. */
+.extension-widget-primary {
+  box-sizing: border-box;
+  flex: 0 0 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding: 4px 12px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  white-space: pre;
+  background: var(--bg);
+  color: var(--text-muted);
+  font: 400 11px/1.5 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  scrollbar-width: thin;
+}
+
+.extension-widget-primary::selection,
+.extension-widget-primary *::selection {
+  background: var(--bg-selected);
+}
+
 .message-user {
   margin-bottom: 18px !important;
+}
+
+/* Message actions are pointer-revealed on hover-only devices, but remain in
+   the tab order. Reveal them for keyboard focus and on touch, where there is
+   no hover affordance. */
+.message-copy-actions,
+.user-msg-actions {
+  display: flex;
+  gap: 3px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.message-user:hover .message-copy-actions,
+.message-user:focus-within .message-copy-actions,
+.message-user:hover .user-msg-actions,
+.message-user:focus-within .user-msg-actions,
+.message-assistant:hover .message-copy-action,
+.message-assistant:focus-within .message-copy-action {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (hover: none) {
+  .message-copy-actions,
+  .user-msg-actions,
+  .message-copy-action {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+/* The workbench styles above this point can layer broad interaction rules
+   after the message section. Keep action affordances authoritative here. */
+.message-user:hover .message-copy-actions,
+.message-user:focus-within .message-copy-actions,
+.message-user:hover .user-msg-actions,
+.message-user:focus-within .user-msg-actions,
+.message-assistant:hover .message-copy-action,
+.message-assistant:focus-within .message-copy-action {
+  pointer-events: auto !important;
+}
+
+@media (hover: none) {
+  .message-copy-actions,
+  .user-msg-actions,
+  .message-copy-action {
+    pointer-events: auto !important;
+  }
 }
 
 .message-user-bubble {
@@ -6175,6 +6704,94 @@ span.linenumber {
 
 .notice-shelf-message {
   letter-spacing: -0.005em;
+}
+
+.app-notice-shelf {
+  position: fixed;
+  top: 14px;
+  right: 16px;
+  z-index: 1200;
+  display: flex;
+  width: min(420px, calc(100vw - 24px));
+  flex-direction: column;
+  align-items: stretch;
+  pointer-events: none;
+}
+
+.app-notice-item {
+  position: relative;
+  display: flex;
+  min-height: 48px;
+  max-height: 460px;
+  align-items: flex-start;
+  gap: 9px;
+  margin-bottom: 7px;
+  overflow: hidden;
+  padding: 10px 9px 10px 13px;
+  pointer-events: auto;
+}
+
+.app-notice-item.is-exiting {
+  animation: notice-shelf-out 180ms var(--ease-native) forwards;
+}
+
+.app-notice-message {
+  flex: 1;
+  min-width: 0;
+  max-height: 440px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  color: var(--text-muted);
+  font-size: var(--fs-caption);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.app-notice-action,
+.app-notice-dismiss {
+  flex: 0 0 auto;
+  min-height: 26px;
+  border: 1px solid var(--separator);
+  border-radius: 7px;
+  color: var(--text-muted);
+  cursor: pointer;
+  background: transparent;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.app-notice-action {
+  padding: 0 10px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.app-notice-dismiss {
+  display: inline-flex;
+  width: 26px;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-notice-action:hover,
+.app-notice-action:focus-visible,
+.app-notice-dismiss:hover,
+.app-notice-dismiss:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--separator));
+  background: var(--accent-soft);
+  color: var(--accent);
+  outline: none;
+}
+
+.app-notice-count {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .native-update-reminder {
@@ -7998,23 +8615,66 @@ html.dark .pilaude-welcome { --pilaude-ripple-color: #7893b2; --pilaude-ripple-o
 .pilaude-welcome-description { font-size: 15px; color: var(--text-muted); line-height: 1.7; margin: 0; max-width: 430px; }
 .pilaude-welcome-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 28px; }
 .pilaude-welcome-note { font-size: 12px; color: var(--text-meta); line-height: 1.7; margin-top: 28px; }
-.cds-button { display: inline-flex; align-items: center; justify-content: center; font-family: var(--font-ui); border: 0; cursor: pointer; transition: background-color 150ms var(--ease-native), transform 100ms var(--ease-native); }
-.cds-button--xs { height: 24px; padding: 0 8px; border-radius: 6px; font-size: 11.5px; gap: 4px; }
-.cds-button--sm { height: 28px; padding: 0 10px; border-radius: 8px; font-size: 12px; gap: 6px; }
-.cds-button--md, .cds-button--icon { height: 32px; padding: 0 14px; border-radius: 8px; font-size: 14px; gap: 6px; }
-.cds-button--icon { width: 32px; padding: 0; }
-.cds-button--lg { height: 40px; padding: 0 20px; border-radius: 12px; font-size: 15px; font-weight: 500; gap: 8px; }
-.cds-button--primary { background: var(--cds-clay); color: var(--cds-clay-contrast, #151515); }
-.cds-button--primary:hover { background: var(--cds-clay-hover); }
-.cds-button--secondary { background: var(--cds-fill-secondary); color: var(--text); }
-.cds-button--secondary:hover { background: var(--cds-fill-secondary-hover); }
+/* ===== C02 按钮尺寸与交互状态 (PIL-0116) =====
+   尺寸、内边距、圆角、按钮间距全部走 --cds-btn-* 令牌，调用处不再逐点覆盖。
+   xs 档取自 3.1623 原生截图量测（agent-panels-light 00/06/07、rate-limit-light，原像素 ÷ 1.5）：
+   填充按钮 ≈22.7×(文字+14)，描边按钮 24 高（含 1px 边框），圆角 5.33，内边距 7，字号 13，
+   并排间距 8（宿主布局负责，不在按钮上加 margin），图标按钮 24×24。sm 取自设置页「管理」（深色，28 高、内边距 10、圆角 6、字号 14）；md/lg/xxs 无原生同态参考，沿用旧值，待补采。 */
+:root {
+  --cds-btn-xs-h: 22.67px; --cds-btn-xs-h-outline: 24px; --cds-btn-xs-px: 7px; --cds-btn-xs-r: 5.33px; --cds-btn-xs-fs: 13px; --cds-btn-xs-gap: 4px;
+  --cds-btn-xxs-h: 20px; --cds-btn-xxs-px: 6px; --cds-btn-xxs-r: 4px; --cds-btn-xxs-fs: 11px; --cds-btn-xxs-gap: 4px;
+  --cds-btn-sm-h: 28px; --cds-btn-sm-px: 10px; --cds-btn-sm-r: 6px; --cds-btn-sm-fs: 14px; --cds-btn-sm-gap: 6px;
+  --cds-btn-md-h: 32px; --cds-btn-md-px: 14px; --cds-btn-md-r: 8px; --cds-btn-md-fs: 14px; --cds-btn-md-gap: 6px;
+  --cds-btn-lg-h: 40px; --cds-btn-lg-px: 20px; --cds-btn-lg-r: 12px; --cds-btn-lg-fs: 15px; --cds-btn-lg-gap: 8px;
+  --cds-btn-icon-xs: 24px; --cds-btn-icon: 32px;
+  --cds-btn-xs-lift: -1px; /* xs：原生 CJK 文字基线比 line-height:1 居中高约 1.3px；sm 量测无需上提（见证据） */
+  --cds-btn-primary-bg: var(--cds-gray-900); --cds-btn-primary-bg-hover: var(--cds-gray-750); --cds-btn-primary-fg: #fff;
+  --cds-btn-outline-fg: var(--cds-gray-900);
+  --cds-btn-icon-fill: hsla(0, 0%, 8%, 0.05);
+  --cds-btn-icon-fg: var(--text-muted);
+  --cds-btn-secondary-fg: var(--text);
+}
+html.dark {
+  /* 深色 primary 无原生参考，取浅色反相，待补采；icon-fill/icon-fg/secondary-fg 取自 main-window-native/2026-10-22 的 07、09 */
+  --cds-btn-primary-bg: var(--cds-text-primary); --cds-btn-primary-bg-hover: #d9d9d6; --cds-btn-primary-fg: var(--cds-gray-900);
+  --cds-btn-outline-fg: var(--cds-text-primary);
+  --cds-btn-icon-fill: hsla(0, 0%, 100%, 0.074);
+  --cds-btn-icon-fg: var(--cds-gray-50);
+  --cds-btn-secondary-fg: var(--cds-gray-50);
+}
+.cds-button { --cds-btn-lift: 0px; --cds-btn-h: var(--cds-btn-md-h); --cds-btn-px: var(--cds-btn-md-px); --cds-btn-r: var(--cds-btn-md-r); --cds-btn-fs: var(--cds-btn-md-fs); --cds-btn-gap: var(--cds-btn-md-gap); box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; max-width: 100%; height: var(--cds-btn-h); padding: 0 var(--cds-btn-px); border: 0; border-radius: var(--cds-btn-r); gap: var(--cds-btn-gap); font: 400 var(--cds-btn-fs)/1 var(--font-ui); white-space: nowrap; cursor: pointer; user-select: none; transition: background-color 150ms var(--ease-native), transform 100ms var(--ease-native); }
+.cds-button--xxs { --cds-btn-h: var(--cds-btn-xxs-h); --cds-btn-px: var(--cds-btn-xxs-px); --cds-btn-r: var(--cds-btn-xxs-r); --cds-btn-fs: var(--cds-btn-xxs-fs); --cds-btn-gap: var(--cds-btn-xxs-gap); }
+.cds-button--xs { --cds-btn-h: var(--cds-btn-xs-h); --cds-btn-px: var(--cds-btn-xs-px); --cds-btn-r: var(--cds-btn-xs-r); --cds-btn-fs: var(--cds-btn-xs-fs); --cds-btn-gap: var(--cds-btn-xs-gap); --cds-btn-lift: var(--cds-btn-xs-lift); }
+.cds-button--sm { --cds-btn-h: var(--cds-btn-sm-h); --cds-btn-px: var(--cds-btn-sm-px); --cds-btn-r: var(--cds-btn-sm-r); --cds-btn-fs: var(--cds-btn-sm-fs); --cds-btn-gap: var(--cds-btn-sm-gap); }
+.cds-button--lg { --cds-btn-h: var(--cds-btn-lg-h); --cds-btn-px: var(--cds-btn-lg-px); --cds-btn-r: var(--cds-btn-lg-r); --cds-btn-fs: var(--cds-btn-lg-fs); --cds-btn-gap: var(--cds-btn-lg-gap); font-weight: 500; }
+.cds-button--xs.cds-button--outline { --cds-btn-h: var(--cds-btn-xs-h-outline); }
+.cds-button--icon { width: var(--cds-btn-icon); padding: 0; }
+.cds-button--icon-only { padding: 0; width: var(--cds-btn-h); }
+.cds-button--xs.cds-button--icon-only { --cds-btn-h: var(--cds-btn-icon-xs); }
+.cds-button__icon { display: inline-flex; flex: none; align-items: center; justify-content: center; line-height: 1; }
+.cds-button__label { position: relative; top: var(--cds-btn-lift); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.cds-button__indicator { flex: none; margin-inline-start: var(--cds-btn-gap); }
+.cds-button__spinner { flex: none; box-sizing: border-box; width: 14px; height: 14px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: cds-btn-spin 700ms linear infinite; }
+@keyframes cds-btn-spin { to { transform: rotate(360deg); } }
+.cds-button--primary { background: var(--cds-btn-primary-bg); color: var(--cds-btn-primary-fg); }
+.cds-button--primary:hover:not(:disabled):not(.is-loading) { background: var(--cds-btn-primary-bg-hover); }
+.cds-button--brand { background: var(--cds-clay); color: var(--cds-clay-contrast, #151515); }
+.cds-button--brand:hover:not(:disabled):not(.is-loading) { background: var(--cds-clay-hover); }
+.cds-button--secondary { background: var(--cds-fill-secondary); color: var(--cds-btn-secondary-fg); }
+.cds-button--secondary:hover:not(:disabled):not(.is-loading) { background: var(--cds-fill-secondary-hover); }
 .cds-button--ghost, .cds-button--outline { background: transparent; color: var(--text-muted); }
-.cds-button--outline { border: var(--hairline) solid var(--cds-border); }
-.cds-button--ghost:hover, .cds-button--outline:hover { background: var(--cds-fill-ghost-hover); }
+.cds-button--outline { border: 1px solid var(--cds-border); color: var(--cds-btn-outline-fg); }
+.cds-button--ghost:hover:not(:disabled):not(.is-loading), .cds-button--outline:hover:not(:disabled):not(.is-loading) { background: var(--cds-fill-ghost-hover); }
+.cds-button--icon-only.cds-button--ghost { color: var(--cds-btn-icon-fg); }
+.cds-button--icon-only.cds-button--ghost:hover:not(:disabled):not(.is-loading) { background: var(--cds-btn-icon-fill); }
 .cds-button--danger { background: var(--danger); color: white; }
-.cds-button:active:not(:disabled) { transform: scale(0.98); }
+.cds-button--onContent { background: var(--cds-button-on-content, rgba(0, 0, 0, 0.5)); color: #fff; }
+.cds-button:active:not(:disabled):not(.is-loading) { transform: scale(0.98); }
 .cds-button:disabled { cursor: not-allowed; opacity: 0.35; }
-.cds-button:focus-visible { outline: 2px solid var(--cds-clay); outline-offset: 4px; }
+.cds-button.is-loading { cursor: progress; }
+.cds-button:focus-visible { outline: 2px solid var(--cds-clay); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .cds-button__spinner { animation-duration: 1.6s; } }
+/* ===== /C02 ===== */
 .chat-composer:hover { box-shadow: var(--cds-shadow-composer-hover) !important; }
 .chat-composer:focus-within { box-shadow: var(--cds-shadow-composer-focus) !important; }
 .chat-input-shell {
@@ -9520,3 +10180,973 @@ html.dark .changes-pane {
 .session-todo-metadata { display: flex; flex-wrap: wrap; gap: 3px 12px; margin-top: 3px; color: var(--text-dim); font-size: 11px; overflow-wrap: anywhere; }
 .session-todo-empty { margin: 0; padding: 0 10px 9px; color: var(--text-dim); }
 @media (pointer: coarse) { .session-todo-summary { min-height: 44px; } }
+
+/* Chat attachments: text files chosen in the composer, and the chips a sent message shows. */
+.composer-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 24px;
+  padding: 2px 4px 2px 8px;
+  border: var(--hairline) solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font-size: var(--fs-small);
+}
+
+.composer-file-chip-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-file-chip-size {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+}
+
+.composer-file-chip-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.composer-file-chip-remove:hover {
+  background: var(--bg-selected);
+  color: var(--text);
+}
+
+.message-attached-files {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.message-attached-file {
+  min-width: 0;
+  border: var(--hairline) solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+}
+
+.message-attached-file-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 8px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: var(--fs-small);
+  text-align: left;
+  cursor: pointer;
+}
+
+.message-attached-file-name {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-attached-file-size {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+}
+
+.message-attached-file-body {
+  max-height: 260px;
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border-top: var(--hairline) solid var(--border);
+  font-family: var(--font-mono);
+  font-size: var(--fs-small);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+
+/* Chats: the pin mark and archived rows. */
+.session-item-pin {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  opacity: 0.8;
+}
+
+.sidebar-chats-archived-toggle {
+  margin-top: 2px;
+}
+
+.sidebar-chats-archived-row {
+  opacity: 0.62;
+}
+
+
+/* Settings › General › Chats: stacked label + control rows. */
+.settings-chats-field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  font-size: var(--fs-small);
+}
+
+.settings-chats-control {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: var(--hairline) solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.settings-chats-instructions textarea {
+  min-height: 96px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.settings-chats-hint {
+  color: var(--text-dim);
+  font-size: var(--fs-small);
+}
+/* Preserve the fork composer geometry after upstream layout and Send changes. */
+.native-primary-button.composer-send-button {
+  flex: 0 0 var(--composer-send-size);
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--composer-send-size);
+  height: var(--composer-send-size);
+  min-width: var(--composer-send-size);
+  min-height: var(--composer-send-size);
+  padding: 0;
+  border-radius: 50% !important;
+  box-shadow: none;
+}
+
+/* One action in the editor; editable pending messages dock above its surface. */
+.composer-outbox {
+  margin: 0 18px -12px;
+  padding: 4px 6px 16px;
+  max-height: 188px;
+  overflow-y: auto;
+  border: var(--hairline) solid var(--border);
+  border-bottom: 0;
+  border-radius: 18px 18px 0 0;
+  background: var(--surface);
+}
+.composer-outbox + .chat-composer { position: relative; }
+.composer-outbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  min-width: 0;
+  padding: 0 4px;
+  color: var(--text-muted);
+  font-size: var(--fs-small);
+}
+.composer-outbox-row + .composer-outbox-row { margin-top: 4px; }
+.composer-outbox-mark { flex: 0 0 auto; color: var(--text-dim); }
+.composer-outbox button {
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.composer-outbox-preview {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  color: var(--text) !important;
+}
+.composer-outbox-image-count { color: var(--text-dim); }
+.composer-outbox-actions { display: flex; flex-shrink: 0; align-items: center; gap: 4px; }
+.composer-outbox-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 30px;
+  min-height: 30px;
+  padding: 5px;
+}
+.composer-outbox-actions .composer-outbox-send { padding-inline: 7px; white-space: nowrap; }
+.composer-outbox button:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
+.composer-outbox button:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
+.composer-outbox button:disabled { opacity: 0.5; cursor: default; }
+@media (max-width: 480px) {
+  .composer-outbox { margin-inline: 10px; }
+  .composer-outbox-row { gap: 4px; }
+  .composer-outbox-mark { display: none; }
+  .composer-outbox-send-label { display: none; }
+}
+@media (pointer: coarse) {
+  .composer-outbox-actions button { min-width: 44px; min-height: 44px; }
+  .composer-outbox-row { min-height: 44px; }
+  .composer-outbox-preview { padding-block: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-outbox button { transition: none; }
+}
+
+.native-primary-button.composer-send-button:hover:not(:disabled) {
+  background: var(--accent-hover);
+  box-shadow: none;
+}
+
+.native-primary-button.composer-send-button:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.composer-send-button:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 3px;
+}
+
+@media (pointer: coarse) {
+  .chat-composer {
+    --composer-send-size: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-composer,
+  .native-primary-button.composer-send-button {
+    transition: none !important;
+  }
+
+  .native-primary-button.composer-send-button:active:not(:disabled) {
+    transform: none;
+  }
+}
+
+
+.app-menu [role="menuitemradio"][aria-checked="true"] { background: var(--bg-selected) !important; }
+
+
+/* A file a chat saved to Downloads (save_to_downloads). */
+.saved-file-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 10px 8px;
+  padding: 8px 10px;
+  border: var(--hairline) solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+}
+
+.saved-file-card-text {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.saved-file-card-name {
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--fs-body);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.saved-file-card-path {
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: var(--fs-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.saved-file-card-error {
+  color: var(--danger);
+  font-size: var(--fs-small);
+}
+
+.saved-file-card-reveal {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border: var(--hairline) solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--fs-small);
+  cursor: pointer;
+}
+
+.saved-file-card-reveal:hover {
+  background: var(--bg-hover);
+}
+
+/* C01 主题、文字与图标 -------------------------------------------------------
+   Tokens measured on the Windows Claude Desktop 3.1623.0.0 native captures
+   (main-window-native/2026-10-22, 00 light / 01 dark; CSS px = raw px / 1.5).
+   Ink colours are the extreme-coverage pixels of text and icon glyphs, which
+   equal the glyph colour: light primary #0b0b0b, secondary #52514e, muted
+   #898781; dark primary #f0efec, secondary #c3c2b7, muted #898781. All values
+   are rungs of the vendored gray ramp. The tiers are set once here, on the
+   shared tokens, so components inherit them without per-component overrides. */
+:root {
+  --cds-text-primary: var(--cds-gray-900);
+  --cds-text-secondary: var(--cds-gray-600);
+  --cds-text-muted: var(--cds-gray-400);
+  --text-muted: var(--cds-text-secondary);
+  --text-dim: var(--cds-text-muted);
+}
+html.dark {
+  --cds-text-primary: var(--cds-gray-50);
+  --cds-text-secondary: var(--cds-gray-200);
+  --cds-text-muted: var(--cds-gray-400);
+  --text-muted: var(--cds-text-secondary);
+  --text-dim: var(--cds-text-muted);
+}
+.app-shell,
+html.dark .app-shell {
+  --text: var(--cds-text-primary);
+  --text-muted: var(--cds-text-secondary);
+  --text-dim: var(--cds-text-muted);
+}
+/* Assistant prose: 14px glyphs on a 20px pitch (reference 30 raw px per line,
+   was 22.4px at 1.6). The offset keeps the Small/Large chat sizes in step. */
+.markdown-body {
+  line-height: calc(20px + var(--chat-font-size-offset, 0px));
+}
+/* end C01 */
+
+/* C12 助手正文与消息操作条
+   Body rest: native 3.1623 light/dark main-window captures. The existing
+   20px line pitch and 10px paragraph gap are within the measured tolerance.
+   Action states have no same-state native reference; retain their geometry. */
+.message-assistant {
+  --c12-prose-gap: 10px;
+  --c12-action-gap: 8px;
+  --c12-inline-inset: 4px;
+  --c12-inline-code-text: #8e2626;
+}
+html.dark .message-assistant {
+  --c12-inline-code-text: #ec7e7e;
+}
+.message-assistant-content { gap: var(--c12-prose-gap) !important; }
+.message-assistant-content > [data-message-text] > .markdown-body > p:not(:last-child) {
+  margin-bottom: var(--c12-prose-gap);
+}
+/* Native inline badge: 103 raw px wide around eight mono characters;
+   4px side insets retain that compact width (was 5px on each side). */
+.message-assistant-content > [data-message-text] > .markdown-body .markdown-inline-code {
+  padding-inline: var(--c12-inline-inset);
+  color: var(--c12-inline-code-text);
+}
+.message-assistant-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--c12-action-gap);
+}
+.app-shell .message-assistant-footer[aria-busy="true"] { opacity: 1; }
+.app-shell .message-assistant-footer > button[aria-disabled="true"] {
+  cursor: wait;
+}
+.app-shell .message-assistant-footer > .message-copy-action {
+  color: var(--text-dim);
+  border-radius: 5px;
+}
+.message-assistant-footer > .message-copy-action > .pilaude-action-tooltip {
+  left: 0;
+  transform: none;
+  max-width: calc(100vw - 16px);
+  white-space: normal;
+}
+@media (hover: none) {
+  .message-assistant-footer button.message-copy-action[data-copy-state="idle"]:hover > .pilaude-action-tooltip,
+  .message-assistant-footer button.message-copy-action[data-copy-state="idle"]:focus-visible > .pilaude-action-tooltip {
+    opacity: 0 !important;
+    visibility: hidden !important;
+  }
+}
+.app-shell .message-assistant-footer > .message-copy-action[data-copy-state="copied"] {
+  color: var(--text);
+}
+.message-assistant-footer > .message-copy-action:not([data-copy-state="idle"]) > .pilaude-action-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0ms;
+}
+.message-assistant-footer .c12-copy-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+/* end C12 */
+
+/* C19 模型切换菜单 */
+.model-selector-menu {
+  /* 3.1623 native reference at 150%: 36px row pitch, 16px outer radius. */
+  /* 浅色对勾待参考：保持现有系统菜单选中色，不改全局令牌。 */
+  --model-menu-check-color: var(--menu-selection-color);
+  --menu-inset: 3.333px;
+  --menu-radius: 10.667px;
+  --menu-row-radius: 7.333px;
+  --menu-row-height: 24px;
+  --menu-row-gap: 0px;
+  box-sizing: border-box;
+}
+
+html.dark .model-selector-menu {
+  --separator: #373736;
+  --model-menu-check-color: #2975d1;
+  /* 正文继承 C01 的 --text（深色 #f0efec）。本工作树尚未合入 C01，
+     旧 app-shell 仍映射到 #e7e6e1；由 C01 集成修正，不在 C19 重定义。 */
+  --bg-hover: #313130;
+  --bg-selected: #313130;
+}
+
+.model-selector-menu .app-option-row > button[role="option"],
+.model-selector-menu .app-option-row[data-selected] > button[role="option"] {
+  height: var(--menu-row-height);
+  /* Preserve the label inset; move the plain check 4px toward the edge. */
+  padding: 2px 4px 2px 8px !important;
+  color: var(--text) !important;
+  font-size: 13.333px !important;
+  font-weight: 400 !important;
+  line-height: 20px;
+}
+
+.model-selector-menu .app-option-row:has(.app-default-star) > button[role="option"] {
+  /* Reserve the entire star target plus a 10px gap, including coarse pointers. */
+  padding-right: calc(var(--menu-row-height) + 12px) !important;
+}
+
+.model-selector-menu .app-option-row[data-selected] {
+  background: transparent !important;
+}
+
+.model-selector-menu .app-option-row[data-selected]::before {
+  content: none;
+}
+
+.model-selector-menu .app-default-star {
+  width: 24px !important;
+  height: 24px !important;
+}
+
+.model-selector-check {
+  flex: none;
+  margin-left: auto;
+  color: var(--model-menu-check-color);
+}
+
+.model-selector-provider {
+  padding: 4px 8px 2px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--fs-caption);
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-selector-provider.has-separator {
+  margin-top: 4px;
+  border-top: 1px solid var(--separator);
+}
+
+.model-selector-filter {
+  flex: none;
+  padding: 2px 4px 6px;
+}
+
+.model-selector-filter input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--separator);
+  background: var(--surface-muted);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-small);
+}
+
+.model-selector-filter input:focus-visible {
+  outline: 2px solid var(--menu-focus-ring);
+  outline-offset: -2px;
+}
+
+.model-selector-menu .app-menu-list {
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.model-selector-empty,
+.model-selector-unavailable {
+  padding: 4px 8px;
+  color: var(--text-muted);
+  font-size: var(--fs-small);
+  overflow-wrap: anywhere;
+}
+
+.model-selector-unavailable {
+  display: flex;
+  flex-direction: column;
+  opacity: 0.6;
+}
+
+.model-selector-unavailable small {
+  font-size: var(--fs-caption);
+}
+
+@media (pointer: coarse) {
+  .model-selector-menu { --menu-row-height: 44px; }
+  .model-selector-menu .app-default-star { width: 44px !important; height: 44px !important; }
+}
+/* End C19 模型切换菜单 */
+
+/* C13 代码块、Mermaid source 与复制反馈 */
+.c13-code-block {
+  --c13-code-surface: #fff;
+  --c13-code-border: #dedede;
+  --c13-code-text: #202020;
+  --c13-code-action-text: #202020;
+  --c13-code-hover: #f2f2f2;
+  min-width: 0;
+  margin: 10.6667px 0;
+  border: 1px solid var(--c13-code-border);
+  border-radius: 8px;
+  overflow: visible;
+  background: var(--c13-code-surface);
+}
+html.dark .c13-code-block {
+  --c13-code-surface: #1a1a19;
+  --c13-code-border: #2d2d2d;
+  --c13-code-text: #e5e7eb;
+  --c13-code-action-text: #e6e5e2;
+  --c13-code-hover: #2b2b2a;
+}
+.c13-code-block > .markdown-code-header {
+  position: absolute;
+  z-index: 1;
+  top: 3px;
+  right: 6px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.c13-code-block > .markdown-code-header > .markdown-code-lang { display: none; }
+.c13-code-block .markdown-code-actions {
+  gap: 4px;
+  align-items: center;
+  opacity: 0;
+  pointer-events: none;
+  border-radius: 5px;
+  background: var(--c13-code-surface);
+}
+:is(.message-assistant, .message-user, .markdown-body):is(:hover, :focus-within) .c13-code-block .markdown-code-actions,
+.c13-code-block:is(:hover, :focus-within) .markdown-code-actions,
+.c13-code-block:has(.c13-copy-control:not([data-copy-state="idle"])) .markdown-code-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.c13-code-block > .c13-code-content {
+  padding: 5.3333px 48px 5.3333px 16px !important;
+  border-radius: 7px !important;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  background: var(--c13-code-surface) !important;
+  color: var(--c13-code-text) !important;
+  font: 400 calc(12.5px + var(--chat-font-size-offset, 0px))/20px var(--font-mono) !important;
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+  tab-size: 4;
+}
+.c13-code-block:has(.markdown-code-actions > button) > .c13-code-content { padding-right: 108px !important; }
+.c13-code-block .markdown-code-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  border: 0;
+  border-radius: 5px;
+  padding: 0 6px;
+  background: transparent;
+  color: var(--c13-code-action-text);
+  line-height: 16px;
+}
+.c13-code-block .markdown-code-copy { width: 24px; padding: 0; }
+.c13-code-block .markdown-code-action:is(:hover, :active, .is-active),
+.c13-copy-control[data-copy-state="copied"] .markdown-code-copy { background: var(--c13-code-hover); }
+.c13-code-block .markdown-code-action:hover:not(:disabled) { color: var(--c13-code-action-text); }
+.c13-code-block :is(.markdown-code-action, .c13-code-content):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.c13-copy-control { position: relative; display: inline-flex; }
+.c13-copy-control .markdown-code-copy[aria-disabled="true"] { cursor: progress; }
+.c13-copy-tooltip {
+  position: fixed;
+  z-index: 1000;
+  width: max-content;
+  max-width: min(280px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: 2px 7px 4px;
+  border: 1px solid #373736;
+  border-radius: 5px;
+  background: #20201f;
+  color: #f0efec;
+  box-shadow: 0 2px 6px #0003;
+  font: 400 13px/16px "Segoe UI", "Microsoft YaHei", sans-serif;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.c13-copy-tooltip[data-copy-state="failed"] { white-space: normal; }
+.c13-copy-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.c13-copy-pending { transform-origin: center; animation: c13-copy-spin 0.8s linear infinite; }
+@keyframes c13-copy-spin { to { transform: rotate(360deg); } }
+@media (hover: none) {
+  .c13-code-block .markdown-code-actions { opacity: 1; pointer-events: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .c13-copy-pending { animation: none; }
+}
+/* End C13 */
+
+/* C33 侧栏项目／会话、搜索、状态及重排
+   Reference: Windows Claude Desktop 3.1623.0.0, main-window-native/2026-10-22
+   (00 light, 01 dark, 02/03 hover). 2560x1600 @150%, app zoom 100%: CSS px =
+   raw px / 1.5. Measured: nav pitch 40 raw = 26.67; session row 28 high on a
+   30 pitch (2px gap), inset 8 left / 10 right, radius 6; row text left 18,
+   child text 38.2 with a 0.67px elbow guide at x=22; trailing slot (+, warning)
+   centred 193 = 12.3 from the row's right edge; "···" button 24x24, dark fill
+   #343434. Light/dark session text #52514e/#c3c2b7, selected #0b0b0b/#f0efec on
+   #f0efec/#232323, labels #898781 in both themes, guide #cbcbc9/#414141.
+   Not in any 3.1623 reference (kept from earlier work, listed as residuals):
+   search field, section titles Chats/Projects, running/unread/needs-input
+   marks, light-theme hover fill, show-more / group captions, pin and archive
+   rows, long-name fade. Layout above the tree (search, window chrome) and the
+   259px default width belong to other cards. */
+.app-shell .session-sidebar {
+  --sidebar-nav-text: var(--text-muted);
+  --sidebar-session-text: var(--text-muted);
+  --sidebar-session-selected-text: var(--text);
+  --sidebar-session-selected: #f0efec;
+  --sidebar-project-label: var(--text-dim);
+  --sidebar-label: var(--text-dim);
+  --sidebar-guide: #cbcbc9;
+}
+html.dark .app-shell .session-sidebar {
+  --sidebar-nav-text: var(--text-muted);
+  --sidebar-session-text: var(--text-muted);
+  --sidebar-session-selected-text: var(--text);
+  --sidebar-session-selected: #232323;
+  --sidebar-session-menu: #343434;
+  --sidebar-project-label: var(--text-dim);
+  --sidebar-label: var(--text-dim);
+  --sidebar-guide: #414141;
+}
+
+/* Nav rows: icon ink centre x=26 (15px box), text at 41.5, pitch 26.67.
+   导航行圆角 8px 待参考：3.1623 无同态样本，保留原值。 */
+.app-shell .session-sidebar .sidebar-header-row,
+.app-shell .session-sidebar .scheduled-sidebar-row {
+  box-sizing: border-box;
+  width: calc(100% + 2px);
+  height: 26.67px !important;
+  min-height: 26.67px;
+  margin: 0 0 0 -2px;
+  padding: 0 10px 0 10.5px !important;
+  gap: 8px !important;
+  border-radius: 8px;
+  color: var(--sidebar-nav-text) !important;
+}
+.app-shell .session-sidebar .sidebar-header-row > svg:first-child { margin: 0; }
+.app-shell .session-sidebar .sidebar-header-row > svg,
+.app-shell .session-sidebar .scheduled-sidebar-row svg { width: 15px; height: 15px; }
+.app-shell .session-sidebar .sidebar-new-row { padding-left: 9.5px !important; gap: 6px !important; }
+.app-shell .session-sidebar .sidebar-new-plus { width: 18px; height: 18px; color: var(--sidebar-nav-text); }
+
+/* Section titles and project labels share the reference label colour. */
+.app-shell .session-sidebar .sidebar-project-tree { padding-top: 0; }
+.app-shell .session-sidebar .sidebar-chats-header { margin-top: 0; }
+.app-shell .session-sidebar .sidebar-project-tree-header { height: 26px; min-height: 26px; margin-bottom: 0; }
+.app-shell .session-sidebar .sidebar-project-tree-title,
+.app-shell .session-sidebar .sidebar-chats-title:hover .sidebar-project-tree-title { color: var(--sidebar-label); }
+.app-shell .session-sidebar .sidebar-project-tree-add,
+.app-shell .session-sidebar .sidebar-project-tree-menu { color: var(--sidebar-label); }
+.app-shell .session-sidebar .sidebar-chats-empty { padding-left: 18px; }
+
+/* Project label row: 26 high, text at 18. Same-text ink-centre gap measured
+   39px (reference 39.33px); keep the 9px group margin.
+   项目行圆角 8px 待参考：3.1623 无同态样本，保留原值。 */
+.app-shell .session-sidebar .sidebar-project-tree-group { margin-bottom: 9px; }
+.app-shell .session-sidebar .sidebar-project-tree-row {
+  box-sizing: border-box;
+  width: calc(100% - 18px);
+  height: 26px;
+  min-height: 26px;
+  margin: 0 10px 0 8px;
+  border-radius: 8px;
+}
+.app-shell .session-sidebar .sidebar-project-tree-row-main { padding-left: 10px; }
+.app-shell .session-sidebar .sidebar-project-tree-row-actions { right: 0.3px; }
+.app-shell .session-sidebar .sidebar-project-tree-show-more { width: calc(100% - 18px); margin: 0 10px 0 8px; padding-left: 10px; }
+.app-shell .session-sidebar .sidebar-session-group-name { padding-left: 18px; }
+
+/* Session rows: 28 high, 2px apart (margin-bottom only: a flex item does not collapse it), 6px radius, title at x=18. */
+.app-shell .session-sidebar .session-tree-item { position: relative; min-height: 28px; margin-left: 0 !important; }
+.app-shell .session-sidebar .session-item,
+.app-shell .session-sidebar .sidebar-project-tree-children .session-item {
+  box-sizing: border-box;
+  width: calc(100% - 18px);
+  height: 28px !important;
+  margin: 0 10px 2px 8px;
+  padding: 0 0 0 10px !important;
+  gap: 0;
+  border-radius: 6px;
+}
+.app-shell .session-sidebar .session-item-main { gap: 0; }
+/* The menu slot is absolutely positioned; row padding alone cannot align it. */
+.app-shell .session-sidebar .session-item-trailing { right: 0; }
+/* The idle ring and its reserved slot are gone: the reference shows no leading
+   mark. Real running / unread / needs-input marks sit in the trailing slot
+   (centre 12.3 from the row edge) where 3.1623 draws its attention icon. */
+.app-shell .session-sidebar .session-activity-dot.is-idle { display: none; }
+.app-shell .session-sidebar .session-item-main .session-activity-dot:not(.is-idle) {
+  position: absolute;
+  top: 50%;
+  right: 8.7px;
+  margin-top: -3.6px;
+}
+.app-shell .session-sidebar .session-item:is(:hover, :focus-within, :has(.session-item-more.is-open)) .session-item-main .session-activity-dot:not(.is-idle) { opacity: 0; }
+/* A selected row at rest carries no "···"; hover, focus and an open menu show it.
+   Only where hover exists: touch has no hover, so "···" stays permanent there (rename /
+   delete would be unreachable) and keeps its 27.2px reservation under the title. */
+@media (hover: hover) {
+  .app-shell .session-sidebar .session-item.is-selected:not(:hover, :focus-within, :has(.session-item-more.is-open)) .session-item-trailing { display: none; }
+  /* ...and so reserves no trailing width either: the reference title ends 9.33 from the
+     row edge. A running / unread mark still sits there, so those rows keep the inset; the
+     title stays clipped (ellipsis-free fade) at the content edge, never overflowing. */
+  .app-shell .session-sidebar .session-item.is-selected:not(:hover, :focus-within, :has(.session-item-more.is-open, .session-activity-dot:not(.is-idle))) .session-item-main { padding-right: 8px; }
+}
+.app-shell .session-sidebar .session-item-more svg { display: block; }
+
+/* Children: text at 38.2 (row padding 30 + 20 per extra level) and an elbow guide. */
+.app-shell .session-sidebar .session-tree-item[data-session-depth="1"] > div:first-child > .session-item { padding-left: 30px !important; }
+.app-shell .session-sidebar .session-tree-item[data-session-depth="2"] > div:first-child > .session-item { padding-left: 50px !important; }
+.app-shell .session-sidebar .session-tree-item[data-session-depth="3"] > div:first-child > .session-item { padding-left: 70px !important; }
+.app-shell .session-sidebar .session-tree-item:not([data-session-depth="0"])::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 22px;
+  width: 0;
+  border-left: 0.67px solid var(--sidebar-guide);
+  pointer-events: none;
+}
+.app-shell .session-sidebar .session-tree-item[data-session-depth="1"]:first-child::before { top: 4px; }
+.app-shell .session-sidebar .session-tree-item[data-session-depth="2"]::before { left: 42px; }
+.app-shell .session-sidebar .session-tree-item[data-session-depth="3"]::before { left: 62px; }
+.app-shell .session-sidebar .session-tree-item:not([data-session-depth="0"]):last-child::before {
+  box-sizing: border-box;
+  bottom: auto;
+  width: 9px;
+  height: 14px;
+  border-bottom: 0.67px solid var(--sidebar-guide);
+  border-bottom-left-radius: 5px;
+}
+.app-shell .session-sidebar .session-tree-item[data-session-depth="1"]:first-child:last-child::before { top: 4px; height: 10px; }
+/* Dark hover = selected fill (#232323 in 02/03 and 01). The row's inline
+   hover background reads --bg-hover, so re-point it on the row. Light hover has
+   no 3.1623 reference and keeps the shared token. */
+html.dark .app-shell .session-sidebar .session-item { --bg-hover: #232323; }
+/* Touch keeps finger-sized rows; the reference geometry is a pointer layout. */
+@media (hover: none) {
+  .app-shell .session-sidebar .session-item,
+  .app-shell .session-sidebar .sidebar-project-tree-children .session-item,
+  .app-shell .session-sidebar .sidebar-project-tree-row { height: 44px !important; min-height: 44px; }
+  .app-shell .session-sidebar .session-tree-item { min-height: 44px; }
+  .app-shell .session-sidebar .sidebar-header-row,
+  .app-shell .session-sidebar .scheduled-sidebar-row { height: 36px !important; min-height: 36px; }
+  .app-shell .session-sidebar .session-tree-item:not([data-session-depth="0"])::before { display: none; }
+}
+
+/* C08 输入器主框与提交控件 -----------------------------------------------------
+   Geometry measured on the Windows Claude Desktop 3.1623.0.0 native captures
+   (main-window-native/2026-10-22 00/04, composer-tooltips-light/2026-10-21 01;
+   CSS px = raw px / 1.5). One row of [attach][text][send] inside the card:
+   28px controls, 6px column gap, 8px block padding (46px single-line card),
+   attachment tiles 120px with a 6px gap and a 16px gap before the row. Insets
+   are tokens so the spacing is tightened in one place. */
+.app-shell .chat-composer:not([data-compact]) {
+  --c08-card-radius: 16px;
+  --composer-line-focus: #c7c7c6; /* 3.1623 focused light border; dark keeps #4d4d4c from the base rule */
+  --c08-control: 28px;
+  --c08-row-gap: 6px;
+  --c08-pad-block: 8px;
+  --c08-pad-start: 6.7px;
+  --c08-pad-end: 8px;
+  --c08-tile: 120px;
+  --c08-tile-gap: 6px;
+  --c08-tile-row-gap: 16px;
+  min-height: 0;
+  border-radius: var(--c08-card-radius) !important;
+  padding: var(--c08-pad-block) var(--c08-pad-end) var(--c08-pad-block) var(--c08-pad-start) !important;
+}
+.app-shell .chat-composer:not([data-compact]):has(.composer-attachments) { padding-bottom: 7px !important; }
+.app-shell .chat-composer:not([data-compact]) .chat-composer-editor {
+  min-height: 0;
+  padding: 0 !important;
+  gap: var(--c08-row-gap) !important;
+  align-items: flex-end !important;
+}
+.app-shell .chat-composer:not([data-compact]) .chat-input-textarea { margin: 2.7px 0 4.3px; }
+.app-shell .chat-composer:not([data-compact]) .composer-attach-button {
+  flex: 0 0 var(--c08-control);
+  align-self: flex-end;
+  width: var(--c08-control);
+  height: var(--c08-control);
+  margin: 0;
+  border-radius: 7px;
+}
+.app-shell .chat-composer:not([data-compact]) .composer-attach-button:hover:not(:disabled) { background: var(--bg-hover); }
+.app-shell .chat-composer:not([data-compact]) .composer-primary-actions { position: relative; height: var(--c08-control); align-self: flex-end; }
+.app-shell .chat-composer:not([data-compact]) .composer-attachments {
+  gap: var(--c08-tile-gap);
+  padding: 3px 0 var(--c08-tile-row-gap) calc(var(--c08-control) + var(--c08-row-gap));
+}
+.app-shell .chat-composer:not([data-compact]) .composer-attachments { justify-content: flex-start; align-items: flex-start; }
+.app-shell .chat-composer:not([data-compact]) .composer-attachment { flex: 0 0 var(--c08-tile); width: var(--c08-tile); max-width: 100%; }
+.app-shell .chat-composer:not([data-compact]) .composer-attachment > button:first-child { width: 100%; max-width: 100%; }
+.app-shell .chat-composer:not([data-compact]) .composer-attachment-image {
+  width: 100%;
+  height: var(--c08-tile);
+  max-width: 100%;
+  max-height: none;
+  aspect-ratio: 1;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+/* 3.1623 composer-attachments-dark 04: 1px #444 ring on the tile; light has no capture, so it keeps the hairline token. */
+html.dark .app-shell .chat-composer:not([data-compact]) .composer-attachment-image { border-color: #444; }
+/* 3.1623 04: the attach button carries no fill while attachments are present; hover keeps its fill. */
+.app-shell .chat-composer:not([data-compact]) .composer-attach-button[data-active]:not(:hover) { background: transparent; }
+/* Send glyph: ink 13.3x11.3 with a ~1.1px stroke; ink centre sits ~22.3px above the card bottom border (verifier recheck against the mic row of 3.1623 composer-tooltips-light 01). */
+.app-shell .chat-composer:not([data-compact]) .composer-send-button[data-action="send"] svg { width: 19px; height: 19px; stroke-width: 1; transform: translateY(0.4px); }
+.composer-send-tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 4.5px);
+  z-index: 40;
+  transform: translateX(-50%);
+  box-sizing: border-box;
+  padding: 4px 8px;
+  border-radius: 6.3px;
+  background: var(--cds-gray-900);
+  color: #fff;
+  box-shadow: 0 2px 8px #0002;
+  font: 400 13px/22px var(--font-ui);
+  white-space: nowrap;
+  pointer-events: none;
+}
+html.dark .composer-send-tooltip { background: #20201f; color: #f0efec; box-shadow: inset 0 0 0 0.8px #373736, 0 2px 5px #0002; }
+.composer-send-tip-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.composer-keycaps { display: inline-flex; align-items: center; gap: 2px; }
+.composer-keycap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4.5px;
+  border: 0.8px solid #2d2d2b;
+  border-radius: 4px;
+  color: #9b9a90;
+  font: 400 11px/1 var(--font-ui);
+}
+.composer-keycap[data-glyph] { width: 16px; padding: 0; }
+html.dark .composer-keycap { border-color: #4d4d4c; color: #c3c2b7; }
+@media (max-width: 640px) {
+  /* The attach button moved into the card, so the footer grid has two columns. */
+  .app-shell .chat-composer-controls .composer-model-controls { grid-column: 1; }
+  .app-shell .chat-composer-controls .composer-session-controls { grid-column: 2; }
+}
+/* end C08 */
+
+/* C16 工具步骤、参数结果与紧凑命令 */
+/* 量测依据：main-window-native/2026-10-22/06 原像素 ÷ 1.5（命令盒外高 44.0、距卡片 7.0、
+   文字距盒边 8.7、行距 ≈ 17.3、结果首行字墨距盒 13.7、末行字墨距底边 9.3）。
+   这些变量只作用于 [data-command-layout="compact"]；无同态参考的富视图不在此改。 */
+.tool-call-row {
+  --c16-tool-gap: 7px;
+  --c16-tool-inset-x: 8px;
+  --c16-tool-inset-y: 3.7px;
+  --c16-command-inset-inline: 6px;
+  --c16-tool-line: 1.42;
+  --c16-result-inset-top: 11px;
+  --c16-result-inset-bottom: 7px;
+}
+.tool-call-row[data-command-layout="compact"] .tool-call-command-line {
+  gap: var(--c16-tool-gap);
+  margin-inline: var(--c16-command-inset-inline);
+  padding: var(--c16-tool-inset-y) var(--c16-tool-inset-x);
+}
+.tool-call-row[data-command-layout="compact"] .tool-call-command-prompt,
+.tool-call-row[data-command-layout="compact"] .tool-call-command-text,
+.tool-call-row[data-command-layout="compact"] .tool-call-command-output {
+  line-height: var(--c16-tool-line);
+}
+.tool-call-row[data-command-layout="compact"] .tool-call-command-result {
+  padding: var(--c16-result-inset-top) var(--c16-command-inset-inline) var(--c16-result-inset-bottom);
+}
+/* end C16 */

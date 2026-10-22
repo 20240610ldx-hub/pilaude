@@ -28,8 +28,12 @@
     "allow-open-path-with",
     "allow-show-popup-menu",
     "allow-set-close-quits",
+    "allow-keep-awake-status",
+    "allow-set-keep-awake",
     "allow-quit-app",
     "allow-show-main-window-cmd",
+    "allow-app-ready",
+    "allow-window-painted",
     "allow-set-ui-theme",
     "allow-clear-app-cache",
     "allow-get-desktop-api-token"

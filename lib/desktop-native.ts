@@ -154,24 +154,31 @@ export async function openExternal(url: string): Promise<void> {
 }
 
 /** Open Changes from a user click: a dedicated native window, or a same-origin browser tab. */
-export async function openChangesWindow(cwd: string, targetId?: string): Promise<void> {
+export async function openChangesWindow(cwd: string, targetId?: string, viewId?: string): Promise<void> {
   if (!cwd.trim() || cwd.includes("\0") || cwd.length > 32_768) {
     throw new Error("A project folder is required to open Changes.");
   }
   if (targetId && (targetId.length > 256 || targetId.includes("\0"))) {
     throw new Error("Invalid Changes feedback target.");
   }
+  if (viewId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(viewId)) {
+    throw new Error("Invalid Changes view identifier.");
+  }
   if (!isTauriDesktop()) {
     const url = new URL("/changes", window.location.origin);
     url.searchParams.set("cwd", cwd);
     if (targetId) url.searchParams.set("targetId", targetId);
+    if (viewId) url.searchParams.set("viewId", viewId);
     // Keep this synchronous, before any await, so browser popup policies see
-    // the original click. No native command is invoked on the web path.
-    window.open(url.href, "_blank", "noopener,noreferrer");
+    // the original click. Clearing opener preserves the existing isolation and
+    // still lets us detect blocked tabs (noopener always returns null).
+    const opened = window.open(url.href, "_blank");
+    if (!opened) throw new Error("The browser blocked the new tab. Allow popups and try again.");
+    opened.opener = null;
     return;
   }
   const { invoke } = await import("@tauri-apps/api/core");
-  await invoke("open_changes_window", { cwd, targetId });
+  await invoke("open_changes_window", { cwd, targetId, ...(viewId ? { viewId } : {}) });
 }
 
 export interface ConversationDestinations {
@@ -447,6 +454,25 @@ export async function setCloseQuitsNative(quit: boolean): Promise<void> {
   await invoke("set_close_quits", { quit });
 }
 
+/** What the OS reports about this app's keep-awake request (desktop shell only). */
+export type KeepAwakeNativeStatus = { supported: boolean; enabled: boolean };
+
+/** Current keep-awake state from the OS-backed native command; null in a browser. */
+export async function keepAwakeStatusNative(): Promise<KeepAwakeNativeStatus | null> {
+  if (!isTauriDesktop()) return null;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<KeepAwakeNativeStatus>("keep_awake_status");
+}
+
+/** Ask the OS to start/stop the keep-awake request; rejects with the native error. */
+export async function setKeepAwakeNative(enabled: boolean): Promise<KeepAwakeNativeStatus> {
+  if (!isTauriDesktop()) {
+    throw new Error("Keep awake is only available in the desktop app.");
+  }
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<KeepAwakeNativeStatus>("set_keep_awake", { enabled });
+}
+
 /** Whether the OS currently launches Pi Agent at login (false in a browser). */
 export async function isAutostartEnabledNative(): Promise<boolean> {
   if (!isTauriDesktop()) return false;
@@ -478,6 +504,26 @@ export async function showMainWindowNative(): Promise<void> {
   if (!isTauriDesktop()) return;
   const { invoke } = await import("@tauri-apps/api/core");
   await invoke("show_main_window_cmd");
+}
+
+let desktopReadyReported = false;
+
+/**
+ * Tells the shell the first screen is on the page, which shows the main window
+ * (it is built hidden so the user never sees an empty webview). Reports once
+ * per page load; the shell shows the window by itself shortly after the page
+ * load event even if this never arrives.
+ */
+export async function reportDesktopReadyNative(source: string): Promise<void> {
+  if (desktopReadyReported || !isTauriDesktop()) return;
+  desktopReadyReported = true;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const sincePageStart = Math.round(performance.now());
+    await invoke("app_ready", { reason: `${source}, page +${sincePageStart}ms` });
+  } catch {
+    // The shell's own fallback shows the window.
+  }
 }
 
 /** Relaunch the desktop shell and its packaged local server. */

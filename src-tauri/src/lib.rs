@@ -19,6 +19,7 @@ use tauri::{AppHandle, Emitter, Manager, RunEvent, Url};
 
 mod changes_window;
 mod conversation_window;
+mod keep_awake;
 mod logging;
 #[cfg(windows)]
 pub mod credential_helper;
@@ -29,35 +30,50 @@ mod shell;
 use changes_window::{close_changes_window, open_changes_window, ChangesWindowOrigin};
 use conversation_window::{open_conversation_window, ConversationWindowOrigin};
 use project_editor::{conversation_destinations, open_project_in_vscode};
-use logging::{desktop_log, install_panic_hook};
+use logging::{desktop_log, install_panic_hook, mark_process_start, since_process_start_ms};
 use native_prefs::{
     clear_app_cache, reconcile_webview_cache_for_version, set_ui_theme, write_last_version,
 };
 #[cfg(feature = "custom-protocol")]
 use native_prefs::{read_last_server_port, write_last_server_port};
+#[cfg(target_os = "macos")]
+use shell::build_macos_app_menu;
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 use shell::build_platform_tray;
 use shell::popup::{show_popup_menu, PopupMenuSelection, POPUP_ID_PREFIX};
+use shell::{
+    app_ready, build_window, launched_at_login, open_external, quit_app, quit_application,
+    schedule_reveal_deadline, set_close_quits, show_main_window_cmd, window_painted, CloseQuits,
+    DesktopApiToken, DesktopServer, AUTOSTART_ARG, WINDOW_LABEL,
+};
 #[cfg(target_os = "linux")]
 use shell::{build_linux_tray, show_main_window};
-#[cfg(target_os = "macos")]
-use shell::{build_macos_app_menu, refresh_traffic_lights};
-use shell::{
-    build_window, launched_at_login, open_external, quit_app, quit_application, set_close_quits,
-    show_main_window_cmd, CloseQuits, DesktopApiToken, DesktopServer, AUTOSTART_ARG, WINDOW_LABEL,
-};
 
 const DESKTOP_API_TOKEN_ENV: &str = "PI_DESKTOP_API_TOKEN";
 const DESKTOP_INSTANCE_ID_ENV: &str = "PI_DESKTOP_INSTANCE_ID";
 const DESKTOP_INSTANCE_ID_HEADER: &str = "x-pi-desktop-instance";
-#[cfg(not(feature = "custom-protocol"))]
+#[cfg(any(not(feature = "custom-protocol"), test))]
 const DEV_SERVER_URL: &str = "http://127.0.0.1:30141";
+/// Development-only runtime override for the server origin (the compiled-in
+/// `devUrl` otherwise wins). Still validated by `development_server_url`.
+#[cfg(any(not(feature = "custom-protocol"), test))]
+const DEV_SERVER_URL_ENV: &str = "PILAUDE_DEV_URL";
 /// Preferred localhost port for the packaged Next server. Keeping this stable
 /// matters because the webview's localStorage is origin-scoped (`host:port`).
 #[cfg(feature = "custom-protocol")]
 const DESKTOP_SERVER_PORT: u16 = 38471;
 #[cfg(feature = "custom-protocol")]
 const SERVER_START_TIMEOUT: Duration = Duration::from_secs(30);
+/// How often startup checks whether the server answers. The probe is a local
+/// socket round trip, so a short interval costs nothing and trims up to this
+/// much off every launch.
+#[cfg(feature = "custom-protocol")]
+const SERVER_START_POLL_INTERVAL: Duration = Duration::from_millis(25);
+/// Env var read by `desktop/server-launcher.cjs`: where Node keeps its compiled
+/// code cache. Deliberately not `NODE_COMPILE_CACHE`, which every node process
+/// the agent starts (tools, scripts) would inherit.
+#[cfg(feature = "custom-protocol")]
+const COMPILE_CACHE_DIR_ENV: &str = "PI_DESKTOP_COMPILE_CACHE_DIR";
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -575,7 +591,7 @@ fn wait_for_server(
             }
             return Ok(());
         }
-        thread::sleep(Duration::from_millis(100));
+        thread::sleep(SERVER_START_POLL_INTERVAL);
     }
 
     Err(io::Error::new(
@@ -631,6 +647,9 @@ fn start_packaged_server(
 
     let port = choose_port(app)?;
     let mut command = Command::new(&node_path);
+    if let Ok(cache_dir) = app.path().app_cache_dir() {
+        command.env(COMPILE_CACHE_DIR_ENV, cache_dir.join("node-compile-cache"));
+    }
     command
         .arg(&server_script)
         .current_dir(&server_dir)
@@ -815,11 +834,88 @@ mod tests {
     }
 }
 
+/// Development connects to the configured existing server; only a bare local
+/// HTTP origin may become a trusted WebView/IPC origin. Packaged startup keeps
+/// its independently selected server origin and never uses this helper.
+#[cfg(any(not(feature = "custom-protocol"), test))]
+fn development_server_url(configured: Option<&Url>) -> Result<Url, String> {
+    let url = configured
+        .cloned()
+        .unwrap_or_else(|| DEV_SERVER_URL.parse().expect("valid default development origin"));
+    if url.scheme() != "http"
+        || url.host_str() != Some("127.0.0.1")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.path() != "/"
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err("Development requires a bare http://127.0.0.1 server origin".into());
+    }
+    Ok(url)
+}
+
+/// The runtime override (when set) replaces the compiled-in `devUrl`; either
+/// way the result goes through `development_server_url`.
+#[cfg(any(not(feature = "custom-protocol"), test))]
+fn development_origin(override_value: Option<&str>, configured: Option<&Url>) -> Result<Url, String> {
+    match override_value.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => {
+            let parsed = Url::parse(value).map_err(|error| format!("Invalid {DEV_SERVER_URL_ENV}: {error}"))?;
+            development_server_url(Some(&parsed))
+        }
+        None => development_server_url(configured),
+    }
+}
+
+#[cfg(test)]
+mod development_origin_tests {
+    use super::{development_origin, development_server_url, DEV_SERVER_URL};
+    use tauri::Url;
+
+    #[test]
+    fn configured_loopback_origin_is_used_without_starting_another_server() {
+        let configured = Url::parse("http://127.0.0.1:30142").unwrap();
+        assert_eq!(development_server_url(Some(&configured)).unwrap().as_str(), "http://127.0.0.1:30142/");
+        assert_eq!(development_server_url(None).unwrap().as_str(), format!("{DEV_SERVER_URL}/"));
+    }
+
+    #[test]
+    fn development_origin_rejects_nonloopback_credentials_and_route_payloads() {
+        for value in [
+            "https://example.com",
+            "http://localhost:30142",
+            "http://192.168.0.1:30142",
+            "http://user@127.0.0.1:30142",
+            "http://127.0.0.1:30142/changes",
+            "http://127.0.0.1:30142/?token=private",
+            "http://127.0.0.1:30142/#fragment",
+            "file:///app",
+        ] {
+            assert!(development_server_url(Some(&Url::parse(value).unwrap())).is_err(), "{value}");
+        }
+    }
+
+    #[test]
+    fn runtime_override_replaces_configured_origin_and_is_validated() {
+        let configured = Url::parse("http://127.0.0.1:30141").unwrap();
+        assert_eq!(development_origin(Some("http://127.0.0.1:45678"), Some(&configured)).unwrap().as_str(), "http://127.0.0.1:45678/");
+        assert_eq!(development_origin(Some("  "), Some(&configured)).unwrap().as_str(), "http://127.0.0.1:30141/");
+        assert_eq!(development_origin(None, None).unwrap().as_str(), format!("{DEV_SERVER_URL}/"));
+        for value in ["http://example.com:1", "http://127.0.0.1:1/x", "not a url"] {
+            assert!(development_origin(Some(value), Some(&configured)).is_err(), "{value}");
+        }
+    }
+}
+
 #[cfg(not(feature = "custom-protocol"))]
 fn start_development_server(
-    _app: &tauri::AppHandle,
+    app: &tauri::AppHandle,
 ) -> Result<(Url, DesktopServer), Box<dyn std::error::Error>> {
-    Ok((DEV_SERVER_URL.parse()?, DesktopServer::empty()))
+    let override_value = std::env::var(DEV_SERVER_URL_ENV).ok();
+    let url = development_origin(override_value.as_deref(), app.config().build.dev_url.as_ref())
+        .map_err(io::Error::other)?;
+    Ok((url, DesktopServer::empty()))
 }
 
 /// Single-instance guard (Linux only). Launching the app binary again starts a
@@ -982,6 +1078,7 @@ fn spawn_focus_monitor(app: AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    mark_process_start();
     install_panic_hook();
 
     // Become the single instance (Linux). If another live instance owns the
@@ -1057,6 +1154,7 @@ pub fn run() {
         })
         .manage(CloseQuits(Mutex::new(false)))
         .manage(PopupMenuSelection::default())
+        .manage(keep_awake::KeepAwakeState::default())
         .manage(DesktopApiToken(desktop_api_token))
         .invoke_handler(tauri::generate_handler![
             open_changes_window,
@@ -1073,8 +1171,12 @@ pub fn run() {
             open_path_with,
             show_popup_menu,
             set_close_quits,
+            keep_awake::keep_awake_status,
+            keep_awake::set_keep_awake,
             quit_app,
             show_main_window_cmd,
+            app_ready,
+            window_painted,
             set_ui_theme,
             clear_app_cache
         ])
@@ -1111,6 +1213,13 @@ pub fn run() {
             desktop_log(app.handle(), &format!("server ready at {url}"));
             app.manage(ChangesWindowOrigin(url.clone()));
             app.manage(ConversationWindowOrigin(url.clone()));
+            desktop_log(
+                app.handle(),
+                &format!(
+                    "startup timing: server ready (+{}ms)",
+                    since_process_start_ms()
+                ),
+            );
             app.manage(server);
             #[cfg(feature = "custom-protocol")]
             if let Some(port) = url.port() {
@@ -1125,6 +1234,8 @@ pub fn run() {
             // Next.js assets after an upgrade).
             reconcile_webview_cache_for_version(app.handle());
             let window = build_window(app.handle(), url)?;
+            // Safety net: whatever the page does, the hidden window appears.
+            schedule_reveal_deadline(app.handle());
             if launched_at_login() {
                 // Started by the OS at login: stay hidden. The tray (Linux /
                 // Windows) or the Dock icon (macOS) is the way back in.
@@ -1150,6 +1261,16 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if window.label() == WINDOW_LABEL {
+                if let tauri::WindowEvent::Destroyed = event {
+                    // The window is gone for good (hiding to the tray is not
+                    // a destroy): drop any keep-awake request with it.
+                    if let Some(state) = window
+                        .app_handle()
+                        .try_state::<keep_awake::KeepAwakeState>()
+                    {
+                        state.release();
+                    }
+                }
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     let quit = window
                         .app_handle()
@@ -1171,6 +1292,9 @@ pub fn run() {
     app.run(|app_handle, event| match event {
         RunEvent::Exit => {
             desktop_log(app_handle, "exit");
+            if let Some(state) = app_handle.try_state::<keep_awake::KeepAwakeState>() {
+                state.release();
+            }
             #[cfg(target_os = "linux")]
             remove_instance_lock();
             if let Some(server) = app_handle.try_state::<DesktopServer>() {
@@ -1182,12 +1306,7 @@ pub fn run() {
             has_visible_windows,
             ..
         } if !has_visible_windows => {
-            if let Some(window) = app_handle.get_webview_window(WINDOW_LABEL) {
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-                refresh_traffic_lights(&window);
-            }
+            shell::show_main_window(app_handle);
         }
         _ => {}
     });

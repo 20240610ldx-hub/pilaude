@@ -69,6 +69,16 @@ description = "Allows the UI to show and focus the main window."
 commands.allow = ["show_main_window_cmd"]
 
 [[permission]]
+identifier = "allow-app-ready"
+description = "Allows the UI to report that its first screen is ready, which shows the hidden main window."
+commands.allow = ["app_ready"]
+
+[[permission]]
+identifier = "allow-window-painted"
+description = "Allows the UI to report that it painted after the window came back from hidden."
+commands.allow = ["window_painted"]
+
+[[permission]]
 identifier = "allow-set-ui-theme"
 description = "Allows the UI to persist light/dark theme for the next cold start."
 commands.allow = ["set_ui_theme"]
@@ -87,3 +97,13 @@ commands.allow = ["show_popup_menu"]
 identifier = "allow-clear-app-cache"
 description = "Allows the UI to clear the webview's disk caches and learn how many bytes were freed."
 commands.allow = ["clear_app_cache"]
+
+[[permission]]
+identifier = "allow-keep-awake-status"
+description = "Allows the main window to query whether this app holds a keep-awake request."
+commands.allow = ["keep_awake_status"]
+
+[[permission]]
+identifier = "allow-set-keep-awake"
+description = "Allows the main window to start or stop this app's system keep-awake request."
+commands.allow = ["set_keep_awake"]
